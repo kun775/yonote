@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{ note['key'] }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for message in messages %}
+                        <div class="flash-message">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        
+        <div class="note-content">
+            {% if view_only %}
+                <div class="markdown-body content-display">
+                    {{ note['content']|markdown }}
+                </div>
+            {% else %}
+                <div id="editor-container" class="{% if preview_mode %}hidden{% endif %}">
+                    <textarea id="content-input" class="content-input" placeholder="开始输入...支持Markdown格式">{{ note['content'] }}</textarea>
+                </div>
+                <div id="preview-container" class="markdown-body {% if not preview_mode %}hidden{% endif %}">
+                    {{ note['content']|markdown }}
+                </div>
+            {% endif %}
+        </div>
+        
+        <div class="note-footer floating">
+            <div class="note-info">
+                <span class="key-badge">{{ note['key'] }}</span>
+                <span id="last-updated">最后更新：{{ note['updated_at']|time_ago }}</span>
+                
+                {% if note['password'] and not note['public'] %}
+                    <span class="status-badge private">私有笔记</span>
+                {% elif note['password'] and note['public'] %}
+                    <span class="status-badge protected">受保护公开</span>
+                {% elif not note['password'] %}
+                    <span class="status-badge public">公开笔记</span>
+                {% endif %}
+            </div>
+            
+            <div class="note-actions">
+                <div class="action-buttons">
+                    <button id="new-note-btn" class="btn small" onclick="window.location.href='/'">
+                        <i class="fas fa-file"></i> 新建
+                    </button>
+                    
+                    {% if view_only %}
+                        <a href="{{ url_for('view_note', key=note['key']) }}" class="btn small">
+                            <i class="fas fa-edit"></i> 编辑
+                        </a>
+                    {% endif %}
+                    
+                    {% if not view_only %}
+                        <button id="preview-toggle-btn" class="btn small">
+                            <i class="fas fa-eye"></i> 预览
+                        </button>
+                        <button id="settings-btn" class="btn small">
+                            <i class="fas fa-cog"></i> 设置
+                        </button>
+                    {% endif %}
+                    
+                    <button id="share-btn" class="btn small">
+                        <i class="fas fa-share-alt"></i> 分享
+                    </button>
+                    <button id="download-btn" class="btn small">
+                        <i class="fas fa-download"></i> 下载
+                    </button>
+                    <button id="help-btn" class="btn small">
+                        <i class="fas fa-question-circle"></i> 帮助
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        {% if not view_only %}
+            <div id="settings-panel" class="settings-panel hidden">
+                <div class="settings-header">
+                    <h3>笔记设置</h3>
+                    <span class="close-settings">&times;</span>
+                </div>
+                
+                <form id="settings-form" method="post" action="{{ url_for('update_note', key=note['key']) }}">
+                    <input type="hidden" name="content" id="settings-content-input" value="{{ note['content'] }}">
+                    
+                    <div class="form-group">
+                        <label>密码保护：</label>
+                        
+                        <div class="radio-group">
+                            {% if note['password'] %}
+                                <div class="radio-option">
+                                    <input type="radio" id="password-keep" name="password_action" value="keep" checked>
+                                    <label for="password-keep">保持不变</label>
+                                </div>
+                                <div class="radio-option">
+                                    <input type="radio" id="password-remove" name="password_action" value="remove">
+                                    <label for="password-remove">移除密码</label>
+                                </div>
+                                <div class="radio-option">
+                                    <input type="radio" id="password-change" name="password_action" value="change">
+                                    <label for="password-change">更改密码</label>
+                                </div>
+                            {% else %}
+                                <div class="radio-option">
+                                    <input type="radio" id="password-keep" name="password_action" value="keep" checked>
+                                    <label for="password-keep">无密码</label>
+                                </div>
+                                <div class="radio-option">
+                                    <input type="radio" id="password-change" name="password_action" value="change">
+                                    <label for="password-change">设置密码</label>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <div id="new-password-container" class="form-group hidden">
+                        <label for="new-password">新密码：</label>
+                        <input type="password" id="new-password" name="new_password">
+                    </div>
+                    
+                    <div class="form-group" id="public-option-container" {% if not note['password'] %}style="opacity: 0.5;"{% endif %}>
+                        <label>
+                            <input type="checkbox" name="public" id="public-checkbox" {% if note['public'] %}checked{% endif %} {% if not note['password'] %}disabled{% endif %}>
+                            <span class="warning-text">无需密码即可查看</span>
+                        </label>
+                        <p class="form-help">
+                            {% if note['password'] and not note['public'] %}
+                                <span class="status-badge private">私有笔记</span> 有密码保护且不公开，需要密码才能查看和编辑
+                            {% elif note['password'] and note['public'] %}
+                                <span class="status-badge protected">受保护公开</span> 有密码保护但可以公开查看，需要密码才能编辑
+                            {% elif not note['password'] %}
+                                <span class="status-badge public">公开笔记</span> 没有密码保护，任何人都可以查看和编辑
+                            {% endif %}
+                        </p>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" id="delete-note-btn" class="btn danger">
+                            <i class="fas fa-trash-alt"></i> 删除笔记
+                        </button>
+                        <button type="submit" class="btn primary">
+                            <i class="fas fa-save"></i> 保存设置
+                        </button>
+                    </div>
+                </form>
+            </div>
+        {% endif %}
+        
+        <!-- 自定义帮助弹框 -->
+        <div id="helpModal" class="custom-modal">
+            <div class="custom-modal-content">
+                <div class="custom-modal-header">
+                    <h5>使用帮助</h5>
+                    <span class="custom-modal-close">&times;</span>
+                </div>
+                <div class="custom-modal-body">
+                    <!-- 基本功能部分 -->
+                    <div class="help-section">
+                        <h5>基本功能</h5>
+                        <ul>
+                            <li><strong>编辑/预览切换：</strong> 点击"预览"按钮可以查看Markdown渲染效果，点击"编辑"返回编辑模式。</li>
+                            <li><strong>自动保存：</strong> 内容会自动保存，无需手动点击保存按钮。</li>
+                            <li><strong>密码保护：</strong> 可以设置密码保护您的笔记，防止未授权访问。</li>
+                            <li><strong>公开/私密：</strong> 可以选择将笔记设为公开或私密。</li>
+                            <li><strong>复制链接：</strong> 点击"复制链接"按钮可以获取笔记的分享链接。</li>
+                            <li><strong>查看模式：</strong> 使用"查看模式"可以获得更好的阅读体验。</li>
+                        </ul>
+                    </div>
+                    
+                    <!-- Markdown语法部分 -->
+                    <div class="help-section">
+                        <h5>Markdown语法</h5>
+                        <ul>
+                            <li><strong>标题：</strong> 使用 # 符号，例如：<code># 一级标题</code>，<code>## 二级标题</code></li>
+                            <li><strong>列表：</strong> 使用 - 或 * 创建无序列表，使用 1. 2. 创建有序列表</li>
+                            <li><strong>链接：</strong> <code>[链接文本](URL)</code></li>
+                            <li><strong>图片：</strong> <code>![替代文本](图片URL)</code></li>
+                            <li><strong>粗体：</strong> <code>**文本**</code> 或 <code>__文本__</code></li>
+                            <li><strong>斜体：</strong> <code>*文本*</code> 或 <code>_文本_</code></li>
+                            <li><strong>代码：</strong> <code>`行内代码`</code> 或使用三个反引号包裹多行代码块</li>
+                            <li><strong>表格：</strong></li>
+                        </ul>
+                        <div class="code-block">| 列1 | 列2 | 列3 |
+| --- | --- | --- |
+| 内容 | 内容 | 内容 |</div>
+                    </div>
+                    
+                    <!-- 安全提示部分 -->
+                    <div class="help-section security-tips">
+                        <h5>安全提示</h5>
+                        <ul>
+                            <li>请勿在此存储敏感个人信息。</li>
+                            <li>即使设置了密码，也建议不要存储高度机密的内容。</li>
+                            <li>定期更改您的笔记密码以提高安全性。</li>
+                            <li>使用复杂密码增强保护强度。</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="custom-modal-footer">
+                    <button type="button" class="btn btn-secondary custom-modal-close-btn">关闭</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 添加自定义弹框脚本 -->
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 获取元素
+            const helpBtn = document.getElementById('help-btn');
+            const helpModal = document.getElementById('helpModal');
+            const closeButtons = helpModal.querySelectorAll('.custom-modal-close, .custom-modal-close-btn');
+            
+            // 打开弹框
+            helpBtn.addEventListener('click', function() {
+                helpModal.style.display = 'block';
+                document.body.style.overflow = 'hidden'; // 防止背景滚动
+            });
+            
+            // 关闭弹框
+            closeButtons.forEach(function(button) {
+                button.addEventListener('click', function() {
+                    helpModal.style.display = 'none';
+                    document.body.style.overflow = ''; // 恢复背景滚动
+                });
+            });
+            
+            // 点击弹框外部关闭
+            window.addEventListener('click', function(event) {
+                if (event.target === helpModal) {
+                    helpModal.style.display = 'none';
+                    document.body.style.overflow = '';
+                }
+            });
+            
+            // ESC键关闭弹框
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape' && helpModal.style.display === 'block') {
+                    helpModal.style.display = 'none';
+                    document.body.style.overflow = '';
+                }
+            });
+        });
+        </script>
+        
+        <!-- 删除确认模态框 -->
+        <div id="delete-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>确认删除</h3>
+                    <span class="close-modal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p><span class="warning-text"><strong>警告：</strong>您即将删除此笔记，此操作不可撤销。</span></p>
+                    <p>笔记ID: <span class="key-badge">{{ note['key'] }}</span></p>
+                    
+                    {% if note['password'] %}
+                    <div class="form-group">
+                        <label for="delete-password">请输入密码确认删除：</label>
+                        <input type="password" id="delete-password" class="full-width">
+                        <p class="error-message hidden" id="delete-password-error">密码错误</p>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button class="btn secondary" id="cancel-delete">取消</button>
+                    <button class="btn danger" id="confirm-delete">删除</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 分享选项模态框 -->
+        <div id="share-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>分享选项</h3>
+                    <span class="close-modal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="share-option">
+                        <h4>复制笔记链接</h4>
+                        <div class="share-link-container">
+                            <input type="text" readonly value="{{ request.host_url }}{{ note['key'] }}{% if note['public'] %}?view=1{% endif %}" id="share-link">
+                            <button id="copy-link-btn" class="btn btn-secondary">
+                                <i class="fas fa-link"></i> 复制链接
+                            </button>
+                        </div>
+                        <p class="form-help">分享此链接，其他人可以{% if note['public'] %}查看{% else %}访问{% endif %}此笔记</p>
+                    </div>
+                    
+                    <div class="share-option">
+                        <h4>复制笔记内容</h4>
+                        <button class="btn full-width" id="copy-content-btn">复制全部内容</button>
+                        <p class="form-help">将笔记的全部文本内容复制到剪贴板</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 下载密码验证模态框 -->
+        <div id="download-password-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>密码验证</h3>
+                    <span class="close-modal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p>此笔记受密码保护，请输入密码以下载内容：</p>
+                    
+                    <div class="form-group">
+                        <label for="download-password">密码：</label>
+                        <input type="password" id="download-password" class="full-width">
+                        <p class="error-message hidden" id="download-password-error">密码错误</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn secondary" id="cancel-download">取消</button>
+                    <button class="btn primary" id="confirm-download">下载</button>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            const contentInput = document.getElementById('content-input');
+            const settingsContentInput = document.getElementById('settings-content-input');
+            const previewToggleBtn = document.getElementById('preview-toggle-btn');
+            const editorContainer = document.getElementById('editor-container');
+            const previewContainer = document.getElementById('preview-container');
+            const lastUpdatedElement = document.getElementById('last-updated');
+            const newPasswordContainer = document.getElementById('new-password-container');
+            
+            // 初始化最后保存时间
+            let lastSaveTime = {{ note['updated_at'] }};
+            
+            // 安全提示模态框
+            const securityInfoBtn = document.getElementById('security-info-btn');
+            const securityModal = document.getElementById('security-modal');
+            const closeSecurityModal = document.getElementById('close-security-modal');
+            const closeModalBtn = document.querySelector('.close-modal');
+            
+            if (securityInfoBtn) {
+                securityInfoBtn.addEventListener('click', function() {
+                    securityModal.classList.remove('hidden');
+                });
+            }
+
+            if (closeSecurityModal) {
+                closeSecurityModal.addEventListener('click', function() {
+                    securityModal.classList.add('hidden');
+                });
+            }
+            
+            if (closeModalBtn) {
+                closeModalBtn.addEventListener('click', function() {
+                    securityModal.classList.add('hidden');
+                });
+            }
+            
+            // 点击模态框外部关闭
+            window.addEventListener('click', function(event) {
+                if (event.target === securityModal) {
+                    securityModal.classList.add('hidden');
+                }
+            });
+            
+            // 分享功能
+            const shareBtn = document.getElementById('share-btn');
+            const shareModal = document.getElementById('share-modal');
+            const shareLink = document.getElementById('share-link');
+            const copyLinkBtn = document.getElementById('copy-link-btn');
+            const copyContentBtn = document.getElementById('copy-content-btn');
+            const closeShareModalBtn = shareModal ? shareModal.querySelector('.close-modal') : null;
+            
+            if (shareBtn) {
+                shareBtn.addEventListener('click', function() {
+                    if (shareModal) {
+                        shareModal.classList.remove('hidden');
+                    }
+                });
+            }
+            
+            if (closeShareModalBtn) {
+                closeShareModalBtn.addEventListener('click', function() {
+                    shareModal.classList.add('hidden');
+                });
+            }
+            
+            if (copyLinkBtn) {
+                copyLinkBtn.addEventListener('click', function() {
+                    // 获取当前URL并修改为查看模式
+                    var currentUrl = window.location.href;
+                    var baseUrl = currentUrl.split('?')[0]; // 移除可能存在的查询参数
+                    var shareUrl = baseUrl + "?view=1";
+                    
+                    // 复制到剪贴板
+                    var tempInput = document.createElement("input");
+                    tempInput.value = shareUrl;
+                    document.body.appendChild(tempInput);
+                    tempInput.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(tempInput);
+                    
+                    // 显示复制成功提示
+                    const notification = document.createElement('div');
+                    notification.className = 'save-indicator';
+                    notification.textContent = '链接已复制到剪贴板！';
+                    document.body.appendChild(notification);
+                    
+                    setTimeout(() => {
+                        notification.remove();
+                    }, 2000);
+                });
+            }
+            
+            if (copyContentBtn) {
+                copyContentBtn.addEventListener('click', function() {
+                    const content = {% if view_only %}
+                        document.querySelector('.content-display').innerText
+                    {% else %}
+                        contentInput.value
+                    {% endif %};
+                    
+                    // 创建临时textarea元素
+                    const textarea = document.createElement('textarea');
+                    textarea.value = content;
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = 0;
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    
+                    // 显示复制成功提示
+                    const notification = document.createElement('div');
+                    notification.className = 'save-indicator';
+                    notification.textContent = '笔记内容已复制到剪贴板';
+                    document.body.appendChild(notification);
+                    
+                    setTimeout(() => {
+                        notification.remove();
+                    }, 2000);
+                });
+            }
+            
+            // 点击模态框外部关闭
+            window.addEventListener('click', function(event) {
+                if (event.target === shareModal) {
+                    shareModal.classList.add('hidden');
+                }
+            });
+            
+            // 下载功能
+            const downloadBtn = document.getElementById('download-btn');
+            const downloadPasswordModal = document.getElementById('download-password-modal');
+            const downloadPasswordInput = document.getElementById('download-password');
+            const downloadPasswordError = document.getElementById('download-password-error');
+            const cancelDownloadBtn = document.getElementById('cancel-download');
+            const confirmDownloadBtn = document.getElementById('confirm-download');
+            const closeDownloadModalBtn = downloadPasswordModal ? downloadPasswordModal.querySelector('.close-modal') : null;
+            
+            function downloadNote(password = null) {
+                const noteKey = '{{ note["key"] }}';
+                let url = '{{ url_for("download_note", key=note["key"]) }}';
+                
+                if (password) {
+                    url += `?password=${encodeURIComponent(password)}`;
+                }
+                
+                // 创建一个隐藏的a标签并触发下载
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `${noteKey}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+            
+            if (downloadBtn) {
+                downloadBtn.addEventListener('click', function() {
+                    const noteContent = {% if view_only %}
+                        document.querySelector('.content-display').textContent.trim()
+                    {% else %}
+                        contentInput.value.trim()
+                    {% endif %};
+                    
+                    if (!noteContent) {
+                        // 内容为空，显示提示
+                        const notification = document.createElement('div');
+                        notification.className = 'save-indicator';
+                        notification.textContent = '笔记内容为空，无法下载';
+                        document.body.appendChild(notification);
+                        
+                        setTimeout(() => {
+                            notification.remove();
+                        }, 2000);
+                        return;
+                    }
+                    
+                    {% if note['password'] and not note['public'] and not authenticated %}
+                    // 需要密码验证
+                    if (downloadPasswordModal) {
+                        downloadPasswordModal.classList.remove('hidden');
+                        if (downloadPasswordInput) {
+                            downloadPasswordInput.value = '';
+                        }
+                        if (downloadPasswordError) {
+                            downloadPasswordError.classList.add('hidden');
+                        }
+                    }
+                    {% else %}
+                    // 直接下载
+                    downloadNote();
+                    {% endif %}
+                });
+            }
+            
+            // 自动保存功能
+            let saveTimeout;
+            
+            function autoSave() {
+                const content = contentInput.value;
+                
+                fetch('/{{ note["key"] }}/auto-save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ content }),
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('保存失败');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('自动保存成功:', data);
+                    // 更新最后保存时间
+                    lastSaveTime = data.timestamp;
+                    updateTimeAgo();
+                    
+                    // 可以添加一个小提示，表示已保存
+                    const saveIndicator = document.createElement('div');
+                    saveIndicator.className = 'save-indicator';
+                    saveIndicator.textContent = '已保存';
+                    document.body.appendChild(saveIndicator);
+                    
+                    setTimeout(() => {
+                        saveIndicator.remove();
+                    }, 2000);
+                })
+                .catch(error => {
+                    console.error('自动保存失败:', error);
+                    const errorIndicator = document.createElement('div');
+                    errorIndicator.className = 'save-indicator error';
+                    errorIndicator.textContent = '保存失败';
+                    document.body.appendChild(errorIndicator);
+                    
+                    setTimeout(() => {
+                        errorIndicator.remove();
+                    }, 2000);
+                });
+            }
+            
+            if (contentInput) {
+                contentInput.addEventListener('input', function() {
+                    if (saveTimeout) {
+                        clearTimeout(saveTimeout);
+                    }
+                    
+                    // 同步到设置表单
+                    if (settingsContentInput) {
+                        settingsContentInput.value = contentInput.value;
+                    }
+                    
+                    saveTimeout = setTimeout(autoSave, 1000);
+                });
+            }
+            
+            // 预览切换
+            let isPreviewMode = false;
+            
+            if (previewToggleBtn && editorContainer && previewContainer) {
+                previewToggleBtn.addEventListener('click', function() {
+                    isPreviewMode = !isPreviewMode;
+                    
+                    if (isPreviewMode) {
+                        // 切换到预览模式
+                        editorContainer.classList.add('hidden');
+                        previewContainer.classList.remove('hidden');
+                        
+                        // 更新按钮内容为"编辑"，带编辑图标
+                        previewToggleBtn.innerHTML = '<i class="fas fa-edit"></i> 编辑';
+                    } else {
+                        // 切换回编辑模式
+                        editorContainer.classList.remove('hidden');
+                        previewContainer.classList.add('hidden');
+                        
+                        // 更新按钮内容为"预览"，带预览图标
+                        previewToggleBtn.innerHTML = '<i class="fas fa-eye"></i> 预览';
+                    }
+                });
+            }
+            
+            // 设置面板
+            const settingsBtn = document.getElementById('settings-btn');
+            const settingsPanel = document.getElementById('settings-panel');
+            const closeSettings = document.querySelector('.close-settings');
+            
+            if (settingsBtn) {
+                settingsBtn.addEventListener('click', function() {
+                    settingsPanel.classList.remove('hidden');
+                });
+            }
+            
+            if (closeSettings) {
+                closeSettings.addEventListener('click', function() {
+                    settingsPanel.classList.add('hidden');
+                });
+            }
+            
+            // 密码设置和公开选项联动
+            const passwordRadios = document.querySelectorAll('input[name="password_action"]');
+            const publicCheckbox = document.getElementById('public-checkbox');
+            const publicOptionContainer = document.getElementById('public-option-container');
+            
+            function updatePublicOption() {
+                const hasPassword = document.querySelector('input[name="password_action"][value="keep"]:checked') && 
+                                   {{ 'true' if note['password'] else 'false' }} ||
+                                   document.querySelector('input[name="password_action"][value="change"]:checked');
+                
+                if (publicCheckbox) {
+                    publicCheckbox.disabled = !hasPassword;
+                    
+                    if (publicOptionContainer) {
+                        if (hasPassword) {
+                            publicOptionContainer.style.opacity = '1';
+                        } else {
+                            publicOptionContainer.style.opacity = '0.5';
+                            publicCheckbox.checked = false;
+                        }
+                    }
+                }
+            }
+            
+            if (passwordRadios) {
+                passwordRadios.forEach(radio => {
+                    radio.addEventListener('change', function() {
+                        // 更新密码输入框显示
+                        if (this.value === 'change' && this.checked) {
+                            if (newPasswordContainer) {
+                                newPasswordContainer.classList.remove('hidden');
+                            }
+                        } else {
+                            if (newPasswordContainer) {
+                                newPasswordContainer.classList.add('hidden');
+                            }
+                        }
+                        
+                        // 更新公开选项状态
+                        updatePublicOption();
+                    });
+                });
+            }
+            
+            // 初始化公开选项状态
+            updatePublicOption();
+            
+            // 表单提交前检查内容是否为空
+            const settingsForm = document.getElementById('settings-form');
+            if (settingsForm) {
+                settingsForm.addEventListener('submit', function(event) {
+                    const content = settingsContentInput.value.trim();
+                    if (!content) {
+                        event.preventDefault();
+                        const notification = document.createElement('div');
+                        notification.className = 'save-indicator error';
+                        notification.textContent = '笔记内容为空，无法保存设置';
+                        document.body.appendChild(notification);
+                        
+                        setTimeout(() => {
+                            notification.remove();
+                        }, 2000);
+                    }
+                });
+            }
+            
+            // 前端计算时间差，减少服务器请求
+            function updateTimeAgo() {
+                if (!lastUpdatedElement) return;
+                
+                const now = Math.floor(Date.now() / 1000);
+                const secondsAgo = now - lastSaveTime;
+                
+                let timeAgoText = '';
+                if (secondsAgo < 60) {
+                    timeAgoText = `${secondsAgo}秒前`;
+                } else if (secondsAgo < 3600) {
+                    timeAgoText = `${Math.floor(secondsAgo / 60)}分钟前`;
+                } else if (secondsAgo < 86400) {
+                    timeAgoText = `${Math.floor(secondsAgo / 3600)}小时前`;
+                } else if (secondsAgo < 604800) {
+                    timeAgoText = `${Math.floor(secondsAgo / 86400)}天前`;
+                } else {
+                    const date = new Date(lastSaveTime * 1000);
+                    timeAgoText = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                }
+                
+                lastUpdatedElement.textContent = `最后更新：${timeAgoText}`;
+            }
+            
+            // 每秒更新时间显示（使用前端计算，不请求服务器）
+            setInterval(updateTimeAgo, 1000);
+            updateTimeAgo(); // 立即更新一次
+            
+            // 删除笔记功能
+            const deleteNoteBtn = document.getElementById('delete-note-btn');
+            const deleteModal = document.getElementById('delete-modal');
+            const cancelDeleteBtn = document.getElementById('cancel-delete');
+            const confirmDeleteBtn = document.getElementById('confirm-delete');
+            const deletePasswordInput = document.getElementById('delete-password');
+            const deletePasswordError = document.getElementById('delete-password-error');
+            const closeDeleteModalBtn = deleteModal ? deleteModal.querySelector('.close-modal') : null;
+            
+            if (deleteNoteBtn) {
+                deleteNoteBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    if (deleteModal) {
+                        deleteModal.classList.remove('hidden');
+                        if (deletePasswordInput) {
+                            deletePasswordInput.value = '';
+                        }
+                        if (deletePasswordError) {
+                            deletePasswordError.classList.add('hidden');
+                        }
+                    }
+                });
+            }
+            
+            if (cancelDeleteBtn) {
+                cancelDeleteBtn.addEventListener('click', function() {
+                    deleteModal.classList.add('hidden');
+                });
+            }
+            
+            if (closeDeleteModalBtn) {
+                closeDeleteModalBtn.addEventListener('click', function() {
+                    deleteModal.classList.add('hidden');
+                });
+            }
+            
+            if (confirmDeleteBtn) {
+                confirmDeleteBtn.addEventListener('click', function() {
+                    {% if note['password'] %}
+                    // 如果有密码保护，验证密码
+                    const password = deletePasswordInput ? deletePasswordInput.value : '';
+                    
+                    fetch('{{ url_for("verify_delete_password", key=note["key"]) }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ password: password }),
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // 密码正确，执行删除
+                            window.location.href = '{{ url_for("delete_note", key=note["key"]) }}';
+                        } else {
+                            // 密码错误，显示错误信息
+                            if (deletePasswordError) {
+                                deletePasswordError.classList.remove('hidden');
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+                    {% else %}
+                    // 无密码保护，直接删除
+                    window.location.href = '{{ url_for("delete_note", key=note["key"]) }}';
+                    {% endif %}
+                });
+            }
+            
+            // 点击模态框外部关闭
+            window.addEventListener('click', function(event) {
+                if (event.target === deleteModal) {
+                    deleteModal.classList.add('hidden');
+                }
+            });
+            
+            // 自动调整文本区域高度
+            function adjustTextareaHeight() {
+                const textarea = document.getElementById('content-input');
+                if (textarea) {
+                    textarea.style.height = 'auto';
+                    textarea.style.height = (window.innerHeight - 100) + 'px';
+                }
+                
+                const previewContainer = document.getElementById('preview-container');
+                if (previewContainer) {
+                    previewContainer.style.height = (window.innerHeight - 100) + 'px';
+                    previewContainer.style.overflowY = 'auto';
+                }
+                
+                const contentDisplay = document.querySelector('.content-display');
+                if (contentDisplay) {
+                    contentDisplay.style.height = (window.innerHeight - 100) + 'px';
+                    contentDisplay.style.overflowY = 'auto';
+                }
+            }
+            
+            window.addEventListener('resize', adjustTextareaHeight);
+            document.addEventListener('DOMContentLoaded', adjustTextareaHeight);
+            adjustTextareaHeight();
+            
+            // 获取所有模态框和关闭按钮
+            const modals = document.querySelectorAll('.modal');
+            const closeButtons = document.querySelectorAll('.close-modal');
+            const cancelButtons = document.querySelectorAll('[id$="-cancel"], [id^="cancel-"]');
+            
+            // 为所有关闭按钮添加事件监听器
+            closeButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    // 查找最近的父级模态框
+                    const modal = this.closest('.modal');
+                    if (modal) {
+                        modal.classList.add('hidden');
+                    }
+                });
+            });
+            
+            // 为所有取消按钮添加事件监听器
+            cancelButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    // 查找最近的父级模态框
+                    const modal = this.closest('.modal');
+                    if (modal) {
+                        modal.classList.add('hidden');
+                    }
+                });
+            });
+            
+            // 点击模态框外部关闭
+            window.addEventListener('click', function(event) {
+                modals.forEach(modal => {
+                    if (event.target === modal) {
+                        modal.classList.add('hidden');
+                    }
+                });
+            });
+            
+            // 添加键盘事件监听器 (ESC键关闭模态框)
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') {
+                    modals.forEach(modal => {
+                        if (!modal.classList.contains('hidden')) {
+                            modal.classList.add('hidden');
+                        }
+                    });
+                }
+            });
+            
+            // 防止下载框自动弹出
+            document.addEventListener('DOMContentLoaded', function() {
+                // 确保所有模态框初始状态为隐藏
+                modals.forEach(modal => {
+                    modal.classList.add('hidden');
+                });
+                
+                // 检查URL参数是否包含new=1，表示这是新创建的笔记
+                const urlParams = new URLSearchParams(window.location.search);
+                const isNewNote = urlParams.get('new') === '1';
+                
+                if (isNewNote) {
+                    // 显示欢迎提示
+                    const notification = document.createElement('div');
+                    notification.className = 'save-indicator';
+                    notification.textContent = '新笔记已创建，开始编辑吧！';
+                    document.body.appendChild(notification);
+                    
+                    setTimeout(() => {
+                        notification.remove();
+                    }, 2000);
+                    
+                    // 清除URL参数，避免刷新页面时再次显示提示
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }
+            });
+
+            document.addEventListener('DOMContentLoaded', function() {
+                // 转换函数：将内容转换为HTML，保留非Markdown内容
+                function convertToHtml(content) {
+                    if (!content) return '';
+                    
+                    try {
+                        // 使用marked库解析Markdown
+                        if (typeof marked !== 'undefined') {
+                            // 配置marked选项
+                            marked.setOptions({
+                                breaks: true,        // 将换行符转换为<br>
+                                gfm: true,           // 使用GitHub风格Markdown
+                                sanitize: false,     // 不过滤HTML标签
+                                smartLists: true,    // 使用更智能的列表行为
+                                xhtml: false         // 不使用自闭合标签
+                            });
+                            
+                            return marked(content);
+                        } else {
+                            // 如果marked未定义，使用简单的文本处理
+                            return simpleTextToHtml(content);
+                        }
+                    } catch (e) {
+                        console.error('Markdown转换错误:', e);
+                        return simpleTextToHtml(content);
+                    }
+                }
+                
+                // 简单文本转HTML函数
+                function simpleTextToHtml(text) {
+                    // 转义HTML特殊字符并保留换行
+                    return text
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#039;')
+                        .replace(/\n/g, '<br>');
+                }
+            });
+        </script>
+    </div>
+    
+    <!-- 添加highlight.js用于代码高亮 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.querySelectorAll('pre code').forEach((el) => {
+                hljs.highlightElement(el);
+            });
+        });
+    </script>
+    
+</body>
+</html>

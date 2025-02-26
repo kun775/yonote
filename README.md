@@ -1,6 +1,9 @@
-# 安全笔记应用
+# 在线共享笔记应用
 
 一个简单但功能完整的在线笔记应用，支持 Markdown 格式，具有密码保护和内容加密功能。
+
+## 在线预览
+[https://note.1v23.com](https://note.1v23.com)
 
 ## 主要功能
 
@@ -55,15 +58,33 @@ python app.py
 ### Docker 部署
 ```bash
 构建镜像
-docker build -t secure-notes .
+docker build -t yonote .
 运行容器
 docker run -d \
--p 5005:5005 \
--e SECRET_KEY='your_secret_key' \
--e ENCRYPTION_KEY='your_encryption_key' \
--e ENCRYPTION_SALT='your_salt' \
--v /path/to/data:/app/data \
-secure-notes
+    -p 5005:5005 \
+    -e SECRET_KEY='your_secret_key' \
+    -e ENCRYPTION_KEY='your_encryption_key' \
+    -e ENCRYPTION_SALT='your_salt' \
+    -v /path/to/data:/app/data \
+yonote
+```
+
+或者使用已编译好的docker
+```yaml
+services:
+    yonote:
+      image: huangsk/yonote:latest #arm系统就使用huangsk/yonote-arm:latest
+      container_name: yonote
+      restart: always
+      ports:
+        - "5505:5005"
+      environment:
+        - SECRET_KEY='your_secret_key'
+        - ENCRYPTION_KEY='your_encryption_key'
+        - ENCRYPTION_SALT='your_salt'
+      volumes:
+        - ./data:/app/data
+        - ./logs:/app/logs
 ```
 
 

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网页笔记应用</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>网页笔记应用</h1>
+        <div class="actions">
+            <a href="{{ url_for('create_note') }}" class="btn primary">创建新笔记</a>
+        </div>
+        <div class="info">
+            <p>使用说明：</p>
+            <ul>
+                <li>创建笔记后可以获得唯一访问链接</li>
+                <li>可以选择设置密码保护笔记</li>
+                <li>可以选择是否允许公开访问</li>
+                <li>公开笔记可通过 <code>https://domain.com/key?view</code> 访问</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

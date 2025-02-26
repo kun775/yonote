@@ -1,0 +1,22 @@
+<nav class="navbar">
+    <div class="container">
+        <a href="{{ url_for('index') }}" class="navbar-brand">安全笔记</a>
+        <div class="navbar-menu">
+            <a href="{{ url_for('index') }}" class="btn primary">新建笔记</a>
+        </div>
+    </div>
+</nav>
+
+<script>
+// 自动隐藏flash消息
+$(document).ready(function() {
+    // 为所有flash消息添加自动消失功能
+    $('.alert').each(function() {
+        var alert = $(this);
+        // 3秒后自动淡出
+        setTimeout(function() {
+            alert.fadeOut('slow');
+        }, 3000);
+    });
+});
+</script> 
