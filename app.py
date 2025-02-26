@@ -25,7 +25,7 @@ DB_PATH = 'data/notes.db'
 limiter = Limiter(
     key_func=get_remote_address,  # 使用 key_func 而不是直接传递函数
     app=app,
-    default_limits=["200 per day", "50 per hour"],
+    default_limits=["2000000 per day", "50000 per hour"],
     storage_uri="memory://",
 )
 
@@ -254,7 +254,6 @@ def view_note(key):
     return render_template('view.html', note=note_dict, view_only=False, authenticated=True)
 
 @app.route('/<key>/verify', methods=['POST'])
-@limiter.limit("10 per minute")
 def verify_password(key):
     password = request.form.get('password', '')
     next_url = request.form.get('next_url', f'/{key}')
@@ -308,7 +307,6 @@ def verify_password(key):
         return redirect(url_for('view_note', key=key))
 
 @app.route('/<key>/update', methods=['POST'])
-@limiter.limit("30 per hour")
 def update_note(key):
     content = request.form.get('content', '')
     password_action = request.form.get('password_action', 'keep')
@@ -366,7 +364,6 @@ def update_note(key):
     return redirect(url_for('view_note', key=key))
 
 @app.route('/<key>/auto-save', methods=['POST'])
-@limiter.limit("120 per hour")
 def auto_save(key):
     data = request.get_json()
     content = data.get('content', '')
@@ -397,7 +394,6 @@ def auto_save(key):
     return jsonify({'status': 'success', 'message': '自动保存成功', 'timestamp': current_time})
 
 @app.route('/render-markdown', methods=['POST'])
-@limiter.limit("300 per hour")
 def render_markdown():
     """实时渲染Markdown内容"""
     data = request.get_json()
@@ -427,7 +423,6 @@ def get_timestamp(key):
     })
 
 @app.route('/<key>/verify-delete', methods=['POST'])
-@limiter.limit("10 per minute")
 def verify_delete_password(key):
     """验证删除笔记的密码"""
     data = request.get_json()
@@ -450,7 +445,6 @@ def verify_delete_password(key):
         return jsonify({'success': False, 'message': '密码错误'})
 
 @app.route('/<key>/delete', methods=['GET'])
-@limiter.limit("10 per hour")
 def delete_note(key):
     """删除笔记"""
     conn = get_db_connection()
@@ -479,7 +473,6 @@ def delete_note(key):
     return redirect(url_for('index'))
 
 @app.route('/<key>/verify-download', methods=['POST'])
-@limiter.limit("10 per minute")
 def verify_download_password(key):
     """验证下载笔记的密码"""
     data = request.get_json()
@@ -502,7 +495,6 @@ def verify_download_password(key):
         return jsonify({'success': False, 'message': '密码错误'})
 
 @app.route('/<key>/download', methods=['GET'])
-@limiter.limit("30 per hour")
 def download_note(key):
     """下载笔记为txt文件"""
     password = request.args.get('password', '')
