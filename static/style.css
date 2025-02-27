@@ -133,13 +133,26 @@ textarea {
 
 .btn.small {
     padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    cursor: pointer;
     font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    min-width: auto;
+    flex: 0 1 auto;
+}
+
+.btn.small i {
+    font-size: 14px;
 }
 
 .form-actions {
     display: flex;
     justify-content: space-between;
-    margin-top: 20px;
+    margin-top: 10px;
 }
 
 .form-actions .btn {
@@ -168,31 +181,24 @@ textarea {
     margin-bottom: 10px;
 }
 
-.note-info span {
-    margin-right: 15px;
-}
-
 .key-badge {
     font-weight: bold;
-    color: #333;
+    color: #000000;
+    display: inline-block;
+    background-color: #5ca4d4;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
 }
 
 .public-badge {
     display: none;
 }
 
-.note-actions {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 10px;
-}
-
 .action-buttons {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .share-info {
@@ -375,8 +381,10 @@ textarea {
     }
     
     .btn.small {
-        padding: 3px 6px;
-        font-size: 11px;
+        padding: 8px 12px;
+        font-size: 13px;
+        flex: 1 1 calc(33.333% - 6px);
+        justify-content: center;
     }
     
     .content-input, .content-display {
@@ -384,8 +392,7 @@ textarea {
     }
     
     .note-actions {
-        flex-direction: column;
-        align-items: flex-start;
+        padding: 8px;
     }
     
     .share-info {
@@ -439,31 +446,157 @@ textarea {
 
 /* Markdown样式 */
 .markdown-body {
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    padding: 0 15px;
-}
-
-.markdown-body pre {
-    width: 100%;
-    overflow-x: auto;
-    background-color: #f6f8fa;
-    border-radius: 3px;
+    line-height: 1.6;
+    word-wrap: break-word;
     padding: 16px;
 }
 
-.markdown-body code {
-    font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
-    font-size: 85%;
-    background-color: rgba(27, 31, 35, 0.05);
-    border-radius: 3px;
-    padding: 0.2em 0.4em;
+/* 表格样式 */
+.markdown-body table {
+    border-spacing: 0;
+    border-collapse: collapse;
+    margin: 1em 0;
+    display: block;
+    width: 100%;
+    overflow: auto;
+    border: 1px solid #dfe2e5;
 }
 
-.markdown-body pre code {
-    background-color: transparent;
-    padding: 0;
+.markdown-body table th,
+.markdown-body table td {
+    padding: 6px 13px;
+    border: 1px solid #dfe2e5;
+    background-color: #fff;
+}
+
+.markdown-body table tr {
+    background-color: #fff;
+    border-top: 1px solid #c6cbd1;
+}
+
+.markdown-body table tr:nth-child(2n) {
+    background-color: #f6f8fa;
+}
+
+.markdown-body table thead tr {
+    background-color: #f6f8fa;
+}
+
+.markdown-body table thead th {
+    font-weight: 600;
+    border-bottom: 2px solid #dfe2e5;
+}
+
+/* 段落和换行 */
+.markdown-body p {
+    margin-top: 0;
+    margin-bottom: 16px;
+}
+
+.markdown-body br {
+    display: block;
+    content: "";
+    margin: 8px 0;
+}
+
+/* 任务列表样式 */
+.markdown-body input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid #d1d5da;
+    border-radius: 2px;
+    width: 16px;
+    height: 16px;
+    margin: 0 8px 0 0;
+    vertical-align: middle;
+    position: relative;
+    cursor: pointer;
+}
+
+.markdown-body input[type="checkbox"]:checked {
+    background-color: #2188ff;
+    border-color: #2188ff;
+}
+
+.markdown-body input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 6px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+/* 警告框样式 */
+.markdown-body .admonition {
+    margin: 20px 0;
+    padding: 15px 30px 15px 15px;
+    border-left: 5px solid;
+    border-radius: 4px;
+}
+
+.markdown-body .admonition.note {
+    background-color: #e7f2fa;
+    border-color: #2196f3;
+}
+
+.markdown-body .admonition.warning {
+    background-color: #fff3e0;
+    border-color: #ff9800;
+}
+
+.markdown-body .admonition.danger {
+    background-color: #fde7e7;
+    border-color: #f44336;
+}
+
+.markdown-body .admonition-title {
+    font-weight: 600;
+    margin: -15px -30px 15px -15px;
+    padding: 8px 15px;
+    background-color: rgba(0,0,0,0.05);
+}
+
+/* 定义列表样式 */
+.markdown-body dt {
+    font-weight: 600;
+    margin-top: 16px;
+}
+
+.markdown-body dd {
+    margin-left: 20px;
+    padding-left: 20px;
+    border-left: 3px solid #eee;
+}
+
+/* 代码高亮样式 */
+.markdown-body pre {
+    background-color: #f6f8fa;
+    border-radius: 6px;
+    padding: 16px;
+    overflow: auto;
+}
+
+.markdown-body code {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 85%;
+    padding: 0.2em 0.4em;
+    margin: 0;
+    background-color: rgba(27,31,35,0.05);
+    border-radius: 3px;
+}
+
+/* 数学公式样式 */
+.markdown-body .math {
+    overflow-x: auto;
+    margin: 16px 0;
+}
+
+.markdown-body .math-inline {
+    padding: 0 3px;
 }
 
 #editor-container, #preview-container {
@@ -523,11 +656,12 @@ textarea {
 .status-badge {
     display: inline-block;
     padding: 2px 8px;
-    border-radius: 12px;
+    border-radius: 4px;
     font-size: 12px;
     font-weight: 500;
     color: white;
-    margin-left: 8px;
+    margin-left: 10px;
+    margin-right: 10px;
 }
 
 .status-badge.private {
@@ -557,7 +691,7 @@ textarea {
 }
 
 #preview-container {
-    height: calc(100vh - 120px);
+    /* height: calc(100vh - 120px); */
     overflow-y: auto;
 }
 
@@ -980,38 +1114,178 @@ textarea {
     border-bottom-color: #ffcccc;
 }
 
-/* 预览区域样式 */
-.markdown-preview {
-    width: 100%;
-    min-height: 300px;
+.editor-container {
+    display: flex;
+    gap: 10px;
+    height: calc(100vh - 90px);
     padding: 10px;
-    border: 1px solid #ced4da;
-    border-radius: 0.25rem;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.editor {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.editor textarea {
+    width: 100%;
+    resize: none;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-family: monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.editor textarea:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.preview {
+    width: calc(100vw - 60px);
+    flex: 1;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
     background-color: #fff;
     overflow-y: auto;
-    line-height: 1.6;
-    white-space: pre-wrap; /* 保留空格和换行 */
-    word-wrap: break-word; /* 允许长单词换行 */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
-/* 确保预览区域中的纯文本正确显示 */
-.markdown-preview p {
-    margin-bottom: 1rem;
+.preview img {
+    max-width: 100%;
+    height: auto;
 }
 
-/* 预览区域中的代码块 */
-.markdown-preview pre {
+.preview code {
     background-color: #f8f9fa;
-    padding: 1rem;
-    border-radius: 0.25rem;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
+.preview pre {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 6px;
     overflow-x: auto;
-    margin-bottom: 1rem;
 }
 
-/* 预览区域中的行内代码 */
-.markdown-preview code {
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .editor-container {
+        width: 100%;    
+        flex-direction: column;
+        height: auto;
+    }
+    
+    .editor, .preview {
+        width: 100%; 
+        min-height: 300px;
+    }
+}
+
+.preview-mode {
+    background-color: #f8f9fa !important;
+    cursor: not-allowed !important;
+    border-color: #dee2e6 !important;
+}
+
+textarea[readonly] {
+    background-color: #f8f9fa !important;
+    cursor: not-allowed !important;
+    color: #495057;
+    border-color: #dee2e6;
+}
+
+/* 只读模式下隐藏或禁用按钮 */
+.toggle-button[disabled] {
+    background-color: #6c757d;
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+/* 预览模式下的水印样式 */
+textarea.preview-mode {
+    background-color: #f8f9fa !important;
+    cursor: not-allowed !important;
+}
+
+/* 水印样式 */
+.editor::after {
+    content: "预览中";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-45deg); /* 添加旋转效果 */
+    font-size: 48px;
+    color: rgba(255, 0, 0, 0.1);
+    pointer-events: none; /* 确保水印不会影响文本选择 */
+    z-index: 1;
+    display: none; /* 默认隐藏 */
+    background: linear-gradient(45deg, rgba(0, 0, 0, 0) 25%, transparent 25%);
+    background-size: 100px 100px;
+}
+
+.editor.preview-active::after {
+    display: block;
+}
+
+/* 响应式布局调整 */
+@media screen and (max-width: 768px) {
+    .note-actions {
+        padding: 8px;
+    }
+    
+    .action-buttons {
+        gap: 6px; /* 移动端减小间距 */
+    }
+    
+    .btn.small {
+        padding: 8px 12px;
+        font-size: 13px;
+        /* 在移动端让按钮更均匀地分布 */
+        flex: 1 1 calc(33.333% - 6px); /* 每行显示3个按钮 */
+        justify-content: center;
+    }
+}
+
+/* 更小屏幕的适配 */
+@media screen and (max-width: 480px) {
+    .btn.small {
+        flex: 1 1 calc(50% - 6px); /* 每行显示2个按钮 */
+    }
+}
+
+/* 超小屏幕的适配 */
+@media screen and (max-width: 320px) {
+    .btn.small {
+        flex: 1 1 100%; /* 按钮独占一行 */
+    }
+}
+
+/* 按钮悬停效果 */
+.btn.small:hover {
     background-color: #f8f9fa;
-    padding: 0.2rem 0.4rem;
-    border-radius: 0.25rem;
-    font-family: monospace;
+}
+
+/* 按钮激活状态 */
+.btn.small:active {
+    background-color: #e9ecef;
+}
+
+/* 确保表格在移动设备上也能正常显示 */
+@media screen and (max-width: 768px) {
+    .markdown-body table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
 }

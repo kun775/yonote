@@ -365,7 +365,10 @@ def update_note(key):
 
 @app.route('/<key>/auto-save', methods=['POST'])
 def auto_save(key):
-    data = request.get_json()
+    data = request.get_json(silent=True)  # silent=True 防止出现400错误
+    if data is None:
+        return jsonify({'error': '无效的JSON数据'}), 400
+    
     content = data.get('content', '')
     
     conn = get_db_connection()
@@ -396,11 +399,29 @@ def auto_save(key):
 @app.route('/render-markdown', methods=['POST'])
 def render_markdown():
     """实时渲染Markdown内容"""
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({'error': '无效的JSON数据'}), 400
+        
     content = data.get('content', '')
     
+    # 配置 Markdown 扩展和选项
+    extensions = [
+        'markdown.extensions.extra',        # 包含tables等扩展
+        'markdown.extensions.codehilite',   # 代码高亮
+        'markdown.extensions.nl2br',        # 换行转换为<br>
+        'markdown.extensions.sane_lists',   # 更智能的列表
+        'markdown.extensions.meta',         # 元数据
+        'markdown.extensions.tables',       # 明确包含表格扩展
+        'markdown.extensions.toc',          # 目录
+    ]
+    
     # 使用markdown库渲染内容
-    html = markdown.markdown(content, extensions=['extra', 'codehilite', 'tables'])
+    html = markdown.markdown(
+        content,
+        extensions=extensions,
+        output_format='html'
+    )
     
     return jsonify({'html': html})
 
@@ -425,7 +446,10 @@ def get_timestamp(key):
 @app.route('/<key>/verify-delete', methods=['POST'])
 def verify_delete_password(key):
     """验证删除笔记的密码"""
-    data = request.get_json()
+    data = request.get_json(silent=True)  # silent=True 防止出现400错误
+    if data is None:
+        return jsonify({'error': '无效的JSON数据'}), 400
+    
     password = data.get('password', '')
     
     conn = get_db_connection()
@@ -475,7 +499,10 @@ def delete_note(key):
 @app.route('/<key>/verify-download', methods=['POST'])
 def verify_download_password(key):
     """验证下载笔记的密码"""
-    data = request.get_json()
+    data = request.get_json(silent=True)  # silent=True 防止出现400错误
+    if data is None:
+        return jsonify({'error': '无效的JSON数据'}), 400
+    
     password = data.get('password', '')
     
     conn = get_db_connection()
@@ -570,4 +597,4 @@ def clear_lockout(key, ip_address):
     conn.close()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5005, debug=False)
+    app.run(host='0.0.0.0', port=5005, debug=True)

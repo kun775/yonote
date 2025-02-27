@@ -9,6 +9,18 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
+    <!-- KaTeX CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+    
+    <!-- KaTeX JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+    
+    <!-- 代码高亮 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <!-- MathJax 支持 -->
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
     <div class="container">
@@ -23,25 +35,23 @@
         {% endwith %}
         
         <div class="note-content">
-            {% if view_only %}
-                <div class="markdown-body content-display">
-                    {{ note['content']|markdown }}
+            <div class="editor-container" data-view-only="{{ 'true' if view_only else 'false' }}">
+                <div class="editor">
+                    <textarea id="content" 
+                              name="content" 
+                              placeholder="开始输入。。。支持Markdown语法，并实时预览"
+                              data-note-key="{{ note['key'] }}"
+                              {% if view_only %}readonly{% endif %}>{{ note['content'] }}</textarea>
                 </div>
-            {% else %}
-                <div id="editor-container" class="{% if preview_mode %}hidden{% endif %}">
-                    <textarea id="content-input" class="content-input" placeholder="开始输入...支持Markdown格式">{{ note['content'] }}</textarea>
+                <div class="preview markdown-body" id="preview">
+                    <!-- Markdown 预览内容将在这里显示 -->
                 </div>
-                <div id="preview-container" class="markdown-body {% if not preview_mode %}hidden{% endif %}">
-                    {{ note['content']|markdown }}
-                </div>
-            {% endif %}
+            </div>
         </div>
         
         <div class="note-footer floating">
             <div class="note-info">
                 <span class="key-badge">{{ note['key'] }}</span>
-                <span id="last-updated">最后更新：{{ note['updated_at']|time_ago }}</span>
-                
                 {% if note['password'] and not note['public'] %}
                     <span class="status-badge private">私有笔记</span>
                 {% elif note['password'] and note['public'] %}
@@ -49,6 +59,7 @@
                 {% elif not note['password'] %}
                     <span class="status-badge public">公开笔记</span>
                 {% endif %}
+                <span id="last-updated">最后更新：{{ note['updated_at']|time_ago }}</span>
             </div>
             
             <div class="note-actions">
@@ -332,11 +343,11 @@
         </div>
         
         <script>
-            const contentInput = document.getElementById('content-input');
+            const contentInput = document.getElementById('content');
             const settingsContentInput = document.getElementById('settings-content-input');
             const previewToggleBtn = document.getElementById('preview-toggle-btn');
             const editorContainer = document.getElementById('editor-container');
-            const previewContainer = document.getElementById('preview-container');
+            const previewContainer = document.getElementById('preview');
             const lastUpdatedElement = document.getElementById('last-updated');
             const newPasswordContainer = document.getElementById('new-password-container');
             
@@ -552,14 +563,14 @@
                     updateTimeAgo();
                     
                     // 可以添加一个小提示，表示已保存
-                    const saveIndicator = document.createElement('div');
-                    saveIndicator.className = 'save-indicator';
-                    saveIndicator.textContent = '已保存';
-                    document.body.appendChild(saveIndicator);
+                    // const saveIndicator = document.createElement('div');
+                    // saveIndicator.className = 'save-indicator';
+                    // saveIndicator.textContent = '已保存';
+                    // document.body.appendChild(saveIndicator);
                     
-                    setTimeout(() => {
-                        saveIndicator.remove();
-                    }, 2000);
+                    // setTimeout(() => {
+                    //     saveIndicator.remove();
+                    // }, 2000);
                 })
                 .catch(error => {
                     console.error('自动保存失败:', error);
@@ -805,15 +816,15 @@
             
             // 自动调整文本区域高度
             function adjustTextareaHeight() {
-                const textarea = document.getElementById('content-input');
+                const textarea = document.getElementById('content');
                 if (textarea) {
                     textarea.style.height = 'auto';
                     textarea.style.height = (window.innerHeight - 100) + 'px';
                 }
                 
-                const previewContainer = document.getElementById('preview-container');
+                const previewContainer = document.getElementById('preview');
                 if (previewContainer) {
-                    previewContainer.style.height = (window.innerHeight - 100) + 'px';
+                    // previewContainer.style.height = (window.innerHeight - 100) + 'px';
                     previewContainer.style.overflowY = 'auto';
                 }
                 
@@ -941,6 +952,181 @@
                         .replace(/'/g, '&#039;')
                         .replace(/\n/g, '<br>');
                 }
+            });
+
+            // 添加防抖函数来限制请求频率
+            function debounce(func, wait) {
+                let timeout;
+                return function executedFunction(...args) {
+                    const later = () => {
+                        clearTimeout(timeout);
+                        func(...args);
+                    };
+                    clearTimeout(timeout);
+                    timeout = setTimeout(later, wait);
+                };
+            }
+
+            // 实时预览功能
+            document.addEventListener('DOMContentLoaded', function() {
+                const editor = document.getElementById('content');
+                const editorContainer = editor.parentElement; // 获取编辑区容器
+                const previewDiv = document.getElementById('preview');
+                const previewButton = document.getElementById('preview-toggle-btn');
+                const noteKey = document.querySelector('[data-note-key]')?.dataset.noteKey;
+                const isViewOnly = document.querySelector('[data-view-only]')?.dataset.viewOnly === 'true';
+                let isPreviewMode = false;
+                
+                // 配置 KaTeX 自动渲染选项
+                const katexOptions = {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false},
+                        {left: '\\[', right: '\\]', display: true},
+                        {left: '\\(', right: '\\)', display: false}
+                    ],
+                    throwOnError: false,
+                    output: 'html'
+                };
+                
+                // 防抖函数
+                const debounce = (func, wait) => {
+                    let timeout;
+                    return function executedFunction(...args) {
+                        const later = () => {
+                            clearTimeout(timeout);
+                            func(...args);
+                        };
+                        clearTimeout(timeout);
+                        timeout = setTimeout(later, wait);
+                    };
+                };
+                
+                // 更新预览内容
+                const updatePreview = debounce(function(content) {
+                    fetch('/render-markdown', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ content: content })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        previewDiv.innerHTML = data.html;
+                        
+                        // 渲染数学公式
+                        renderMathInElement(previewDiv, katexOptions);
+                        
+                        // 应用代码高亮
+                        previewDiv.querySelectorAll('pre code').forEach((block) => {
+                            hljs.highlightBlock(block);
+                        });
+                    })
+                    .catch(error => console.error('Error:', error));
+                }, 300);
+                
+                // 验证密码
+                const verifyPassword = async (password) => {
+                    try {
+                        const response = await fetch(`/${noteKey}/verify`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/form-data',
+                            },
+                            body: new URLSearchParams({
+                                'password': password,
+                                'next_url': `/${noteKey}`
+                            })
+                        });
+                        return response.ok;
+                    } catch (error) {
+                        console.error('Error:', error);
+                        return false;
+                    }
+                };
+                
+                // 切换预览模式
+                const togglePreviewMode = async () => {
+                    // 如果当前是预览模式，需要切换到编辑模式时验证密码
+                    if (isPreviewMode) {
+                        const hasPassword = previewButton.dataset.hasPassword === 'true';
+                        if (hasPassword) {
+                            const password = prompt('请输入笔记密码：');
+                            if (!password) return;
+                            
+                            const verified = await verifyPassword(password);
+                            if (!verified) {
+                                alert('密码错误！');
+                                return;
+                            }
+                        }
+                    }
+                    
+                    isPreviewMode = !isPreviewMode;
+                    
+                    if (isPreviewMode) {
+                        editor.setAttribute('readonly', 'readonly');
+                        editor.classList.add('preview-mode');
+                        editorContainer.classList.add('preview-active'); // 添加水印类
+                        previewButton.innerHTML = '<i class="fas fa-edit"></i> 编辑';
+                    } else {
+                        editor.removeAttribute('readonly');
+                        editor.classList.remove('preview-mode');
+                        editorContainer.classList.remove('preview-active'); // 移除水印类
+                        previewButton.innerHTML = '<i class="fas fa-eye"></i> 预览';
+                    }
+                    
+                    // 更新预览内容
+                    updatePreview(editor.value);
+                };
+
+                // 初始化状态
+                if (isViewOnly) {
+                    editor.setAttribute('readonly', 'readonly');
+                    editor.classList.add('preview-mode');
+                    editorContainer.classList.add('preview-active'); // 只读模式下也显示水印
+                    if (previewButton) {
+                        previewButton.style.display = 'none'; // 只读模式下隐藏按钮
+                    }
+                }
+                
+                // 监听预览按钮点击事件
+                if (previewButton) {
+                    previewButton.addEventListener('click', togglePreviewMode);
+                }
+                
+                // 监听输入事件
+                if (editor) {
+                    editor.addEventListener('input', function() {
+                        if (!isPreviewMode) {
+                            updatePreview(this.value);
+                        }
+                    });
+                    
+                    // 初始加载时执行一次预览
+                    if (editor.value) {
+                        updatePreview(editor.value);
+                    }
+                }
+            });
+
+            document.addEventListener('DOMContentLoaded', function() {
+                // 初始化数学公式渲染
+                renderMathInElement(document.body, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false},
+                        {left: '\\[', right: '\\]', display: true},
+                        {left: '\\(', right: '\\)', display: false}
+                    ],
+                    throwOnError: false
+                });
+                
+                // 初始化代码高亮
+                document.querySelectorAll('pre code').forEach((block) => {
+                    hljs.highlightBlock(block);
+                });
             });
         </script>
     </div>
