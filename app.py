@@ -1,7 +1,6 @@
 from flask import Flask, request, render_template, redirect, url_for, flash, abort, jsonify, session, make_response
 import sqlite3
 import hashlib
-import secrets
 import os
 import string
 import random
@@ -9,7 +8,6 @@ from datetime import datetime
 from markupsafe import Markup
 import time
 import markdown
-import requests  # 用于获取随机单词
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -597,4 +595,4 @@ def clear_lockout(key, ip_address):
     conn.close()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5005, debug=True)
+    app.run(host='0.0.0.0', port=5005, debug=False)

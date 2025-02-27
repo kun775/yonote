@@ -31,7 +31,7 @@ COPY clean_empty_notes.py /app/
 RUN chmod +x /app/clean_empty_notes.py
 
 # 设置 crontab
-RUN echo "0 3 * * * cd /app && /usr/bin/python3 /app/clean_empty_notes.py >> /app/logs/cron.log 2>&1" > /etc/cron.d/clean-notes && \
+RUN echo "0 3 * * * cd /app && python /app/clean_empty_notes.py >> /app/logs/cron.log 2>&1" > /etc/cron.d/clean-notes && \
     chmod 0644 /etc/cron.d/clean-notes && \
     crontab /etc/cron.d/clean-notes
 

@@ -5,7 +5,7 @@ import sqlite3
 import time
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -20,7 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger('clean_empty_notes')
 
 # 数据库路径
-DB_PATH = 'data/notes.db'
+DB_PATH = '/app/data/notes.db'
 
 # 加密相关配置（与主应用保持一致）
 ENCRYPTION_KEY = os.environ.get('ENCRYPTION_KEY', 'this_is_a_secret_key_please_change_in_production')
