@@ -2,6 +2,8 @@
 
 一个简单但功能完整的在线笔记应用，支持 Markdown 格式，具有密码保护和内容加密功能。
 
+![markdown.png](https://github.com/kun775/yonote/blob/main/markdown.png)
+
 ## 在线预览
 [https://note.1v23.com](https://note.1v23.com)
 
