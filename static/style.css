@@ -1351,13 +1351,13 @@ textarea {
 
 .preview-mode {
     background-color: #f8f9fa !important;
-    cursor: not-allowed !important;
+    cursor: default !important;
     border-color: #dee2e6 !important;
 }
 
 textarea[readonly] {
     background-color: #f8f9fa !important;
-    cursor: not-allowed !important;
+    cursor: default !important;
     color: #495057;
     border-color: #dee2e6;
 }
@@ -1504,4 +1504,92 @@ textarea.preview-mode {
     .preview.hidden {
         display: none; /* 隐藏预览框 */
     }
+}
+/* 快捷指令工具栏样式 */
+.editor-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px;
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    margin-bottom: -1px;
+}
+
+.editor-toolbar .toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    color: #495057;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.editor-toolbar .toolbar-btn:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.editor-toolbar .toolbar-btn:active {
+    background: #dee2e6;
+}
+
+.editor-toolbar .toolbar-btn.wide {
+    width: auto;
+    padding: 0 10px;
+    font-size: 12px;
+}
+
+.editor-toolbar .toolbar-divider {
+    width: 1px;
+    height: 24px;
+    background: #ddd;
+    margin: 4px 6px;
+}
+
+/* 移动端工具栏调整 */
+@media (max-width: 768px) {
+    .editor-toolbar {
+        padding: 6px;
+        gap: 3px;
+    }
+
+    .editor-toolbar .toolbar-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
+
+    .editor-toolbar .toolbar-btn.wide {
+        padding: 0 8px;
+        font-size: 11px;
+    }
+
+    .editor-toolbar .toolbar-divider {
+        margin: 2px 4px;
+        height: 20px;
+    }
+}
+
+/* 编辑器有工具栏时的样式调整 */
+.editor.has-toolbar textarea {
+    border-radius: 0 0 8px 8px;
+}
+
+/* 预览模式下隐藏工具栏 */
+.editor.preview-active .editor-toolbar {
+    display: none;
+}
+
+.editor.preview-active textarea {
+    border-radius: 8px;
 }

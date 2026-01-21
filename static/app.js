@@ -767,4 +767,125 @@ document.addEventListener('DOMContentLoaded', (event) => {
     modals.forEach(modal => {
         modal.classList.add('hidden');
     });
+
+    // 快捷指令工具栏功能
+    const editorToolbar = document.getElementById('editor-toolbar');
+    if (editorToolbar && editor) {
+        // Markdown 快捷插入模板
+        const markdownTemplates = {
+            heading1: { prefix: '# ', suffix: '', placeholder: '一级标题' },
+            heading2: { prefix: '## ', suffix: '', placeholder: '二级标题' },
+            heading3: { prefix: '### ', suffix: '', placeholder: '三级标题' },
+            bold: { prefix: '**', suffix: '**', placeholder: '粗体文本' },
+            italic: { prefix: '*', suffix: '*', placeholder: '斜体文本' },
+            strikethrough: { prefix: '~~', suffix: '~~', placeholder: '删除线文本' },
+            highlight: { prefix: '==', suffix: '==', placeholder: '高亮文本' },
+            ul: { prefix: '- ', suffix: '', placeholder: '列表项', multiline: true },
+            ol: { prefix: '1. ', suffix: '', placeholder: '列表项', multiline: true },
+            task: { prefix: '- [ ] ', suffix: '', placeholder: '任务项', multiline: true },
+            code: { prefix: '```\n', suffix: '\n```', placeholder: '代码内容', block: true },
+            quote: { prefix: '> ', suffix: '', placeholder: '引用内容', multiline: true },
+            link: { prefix: '[', suffix: '](url)', placeholder: '链接文本' },
+            image: { prefix: '![', suffix: '](图片地址)', placeholder: '图片描述' },
+            hr: { prefix: '\n---\n', suffix: '', placeholder: '' },
+            table: {
+                prefix: '',
+                suffix: '',
+                placeholder: '',
+                template: '| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |'
+            }
+        };
+
+        // 插入 Markdown 文本
+        function insertMarkdown(action) {
+            const template = markdownTemplates[action];
+            if (!template) return;
+
+            const start = editor.selectionStart;
+            const end = editor.selectionEnd;
+            const selectedText = editor.value.substring(start, end);
+            const beforeText = editor.value.substring(0, start);
+            const afterText = editor.value.substring(end);
+
+            let insertText;
+            let cursorOffset;
+
+            if (template.template) {
+                // 使用完整模板（如表格）
+                insertText = template.template;
+                cursorOffset = insertText.length;
+            } else if (selectedText) {
+                // 如果有选中文本，用选中文本替换占位符
+                if (template.multiline) {
+                    // 多行处理：每行添加前缀
+                    const lines = selectedText.split('\n');
+                    insertText = lines.map(line => template.prefix + line).join('\n') + template.suffix;
+                } else {
+                    insertText = template.prefix + selectedText + template.suffix;
+                }
+                cursorOffset = insertText.length;
+            } else {
+                // 没有选中文本，插入模板和占位符
+                insertText = template.prefix + template.placeholder + template.suffix;
+                cursorOffset = template.prefix.length + template.placeholder.length;
+            }
+
+            // 块级元素需要确保在新行
+            if (template.block && start > 0 && beforeText[beforeText.length - 1] !== '\n') {
+                insertText = '\n' + insertText;
+            }
+
+            editor.value = beforeText + insertText + afterText;
+
+            // 设置光标位置
+            if (selectedText) {
+                editor.selectionStart = start + insertText.length;
+                editor.selectionEnd = start + insertText.length;
+            } else {
+                // 选中占位符文本
+                editor.selectionStart = start + template.prefix.length + (template.block && beforeText[beforeText.length - 1] !== '\n' ? 1 : 0);
+                editor.selectionEnd = editor.selectionStart + template.placeholder.length;
+            }
+
+            editor.focus();
+
+            // 触发 input 事件以更新预览和自动保存
+            editor.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        // 工具栏按钮点击事件
+        editorToolbar.addEventListener('click', function(e) {
+            const btn = e.target.closest('.toolbar-btn');
+            if (!btn) return;
+
+            const action = btn.dataset.action;
+            if (action) {
+                insertMarkdown(action);
+            }
+        });
+
+        // 键盘快捷键
+        editor.addEventListener('keydown', function(e) {
+            // Ctrl/Cmd + B: 粗体
+            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                e.preventDefault();
+                insertMarkdown('bold');
+            }
+            // Ctrl/Cmd + I: 斜体
+            if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+                e.preventDefault();
+                insertMarkdown('italic');
+            }
+            // Ctrl/Cmd + K: 链接
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                insertMarkdown('link');
+            }
+            // Ctrl/Cmd + Shift + K: 代码块
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'K') {
+                e.preventDefault();
+                insertMarkdown('code');
+            }
+        });
+    }
 });
