@@ -1,0 +1,11 @@
+flask==2.0.1
+werkzeug==2.0.3
+flask-wtf==1.0.0
+flask-limiter==2.4.0
+limits==2.3
+cryptography==36.0.0
+bcrypt==3.2.0
+markdown
+pymdown-extensions>=10.0
+requests
+bleach>=6.0.0

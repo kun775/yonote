@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{ note['key'] }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
+    <!-- KaTeX CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+    
+    <!-- KaTeX JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+    
+    <!-- 代码高亮 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <!-- MathJax 支持 -->
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    
+    <!-- 将模板变量传递给 JavaScript -->
+    <script>
+        window.authenticated = {{ 'true' if authenticated else 'false' }};
+        window.noteUpdatedAt = "{{ note['updated_at'] }}"; // 传递最后更新的时间
+        window.noteKey = "{{ note['key'] }}"; // 传递笔记的键
+        window.viewOnly =  {{ 'true' if view_only else 'false' }}; // 传递 view_only 变量
+        window.password = {{ 'true' if note['password'] else 'false' }};
+        window.public = {{ 'true' if note['public'] else 'false' }};
+    </script>
+    
+    <script src="{{ url_for('static', filename='function.js') }}"></script> <!-- 引入 function.js -->
+    <script src="{{ url_for('static', filename='app.js') }}"></script> <!-- 引入 app.js -->
+<body>
+    <div class="container" data-updated-at="{{ note['updated_at'] }}">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for message in messages %}
+                        <div class="flash-message">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        
+        <div class="note-content">
+            <div class="editor-container" data-view-only="{{ 'true' if view_only else 'false' }}">
+                <div class="editor">
+                    <textarea id="content"
+                              name="content"
+                              placeholder="开始输入。。。支持Markdown语法，并实时预览"
+                              data-note-key="{{ note['key'] }}"
+                              {% if view_only %}readonly{% endif %}>{{ note['content'] }}</textarea>
+                </div>
+                <div class="resizer" id="resizer"></div>
+                <div class="preview markdown-body" id="preview">
+                    <!-- Markdown 预览内容将在这里显示 -->
+                </div>
+            </div>
+        </div>
+        
+        <div class="note-footer floating">
+            <div class="note-info">
+                <span class="key-badge">{{ note['key'] }}</span>
+                {% if note['password'] and not note['public'] %}
+                    <span class="status-badge private">私有笔记</span>
+                {% elif note['password'] and note['public'] %}
+                    <span class="status-badge protected">受保护公开</span>
+                {% elif not note['password'] %}
+                    <span class="status-badge public">公开笔记</span>
+                {% endif %}
+                <span id="last-updated">最后更新：{{ note['updated_at']|time_ago }}</span>
+            </div>
+            
+            <div class="note-actions">
+                <div class="action-buttons">
+                    <button id="new-note-btn" class="btn small" onclick="window.location.href='/'">
+                        <i class="fas fa-file"></i> 新建
+                    </button>
+                    
+                    {% if view_only %}
+                        <a href="{{ url_for('view_note', key=note['key']) }}" class="btn small">
+                            <i class="fas fa-edit"></i> 编辑
+                        </a>
+                    {% endif %}
+                    
+                    {% if not view_only %}
+                        <button id="preview-toggle-btn" class="btn small">
+                            <i class="fas fa-eye"></i> 预览
+                        </button>
+                        <button id="settings-btn" class="btn small">
+                            <i class="fas fa-cog"></i> 设置
+                        </button>
+                    {% endif %}
+                    
+                    <button id="share-btn" class="btn small">
+                        <i class="fas fa-share-alt"></i> 分享
+                    </button>
+                    <button id="download-btn" class="btn small">
+                        <i class="fas fa-download"></i> 下载
+                    </button>
+                    <button id="help-btn" class="btn small">
+                        <i class="fas fa-question-circle"></i> 帮助
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        {% if not view_only %}
+            <div id="settings-panel" class="settings-panel hidden">
+                <div class="settings-header">
+                    <h3>笔记设置</h3>
+                    <span class="close-settings">&times;</span>
+                </div>
+
+                <form id="settings-form" method="post" action="{{ url_for('update_note', key=note['key']) }}">
+                    <input type="hidden" name="content" id="settings-content-input" value="{{ note['content'] }}">
+
+                    <!-- 安全设置分组 -->
+                    <div class="settings-section">
+                        <h4><i class="fas fa-lock"></i> 安全设置</h4>
+                        <div class="form-group">
+                            <label>密码保护：</label>
+                            <div class="radio-group">
+                                {% if note['password'] %}
+                                    <div class="radio-option">
+                                        <input type="radio" id="password-keep" name="password_action" value="keep" checked>
+                                        <label for="password-keep">保持不变</label>
+                                    </div>
+                                    <div class="radio-option">
+                                        <input type="radio" id="password-remove" name="password_action" value="remove">
+                                        <label for="password-remove">移除密码</label>
+                                    </div>
+                                    <div class="radio-option">
+                                        <input type="radio" id="password-change" name="password_action" value="change">
+                                        <label for="password-change">更改密码</label>
+                                    </div>
+                                {% else %}
+                                    <div class="radio-option">
+                                        <input type="radio" id="password-keep" name="password_action" value="keep" checked>
+                                        <label for="password-keep">无密码</label>
+                                    </div>
+                                    <div class="radio-option">
+                                        <input type="radio" id="password-change" name="password_action" value="change">
+                                        <label for="password-change">设置密码</label>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div id="new-password-container" class="form-group hidden">
+                            <label for="new-password">新密码：</label>
+                            <input type="password" id="new-password" name="new_password">
+                        </div>
+                    </div>
+
+                    <!-- 可见性设置分组 -->
+                    <div class="settings-section">
+                        <h4><i class="fas fa-eye"></i> 可见性设置</h4>
+                        <div class="form-group" id="public-option-container" {% if not note['password'] %}style="opacity: 0.5;"{% endif %}>
+                            <label class="checkbox-option">
+                                <input type="checkbox" name="public" id="public-checkbox" {% if note['public'] %}checked{% endif %} {% if not note['password'] %}disabled{% endif %}>
+                                <span class="warning-text">无需密码即可查看</span>
+                            </label>
+                            <p class="form-help">
+                                {% if note['password'] and not note['public'] %}
+                                    <span class="status-badge private">私有笔记</span> 有密码保护且不公开，需要密码才能查看和编辑
+                                {% elif note['password'] and note['public'] %}
+                                    <span class="status-badge protected">受保护公开</span> 有密码保护但可以公开查看，需要密码才能编辑
+                                {% elif not note['password'] %}
+                                    <span class="status-badge public">公开笔记</span> 没有密码保护，任何人都可以查看和编辑
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- 其他操作分组 -->
+                    <div class="settings-section settings-section-danger">
+                        <h4><i class="fas fa-cog"></i> 其他操作</h4>
+                        <div class="form-actions">
+                            <button type="button" id="delete-note-btn" class="btn danger">
+                                <i class="fas fa-trash-alt"></i> 删除笔记
+                            </button>
+                            <button type="submit" class="btn primary">
+                                <i class="fas fa-save"></i> 保存设置
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        {% endif %}
+        
+        <!-- 自定义帮助弹框 -->
+        <div id="helpModal" class="custom-modal">
+            <div class="custom-modal-content">
+                <div class="custom-modal-header">
+                    <h5>使用帮助
+                        <a href="https://github.com/kun775/yonote" target="_blank" class="btn small">
+                            <i class="fab fa-github"></i> Github
+                        </a>
+                    </h5>
+                    <span class="custom-modal-close">&times;</span>
+                </div>
+                <div class="custom-modal-body">
+                    <!-- 基本功能部分 -->
+                    <div class="help-section">
+                        <h5>基本功能</h5>
+                        <ul>
+                            <li><strong>实时预览：</strong> 输入内容后，会实时显示Markdown渲染效果。</li>
+                            <li><strong>自动保存：</strong> 内容会自动保存，无需手动点击保存按钮。</li>
+                            <li><strong>密码保护：</strong> 可以设置密码保护您的笔记，防止未授权访问。</li>
+                            <li><strong>公开/私密：</strong> 可以选择将笔记设为公开或私密。</li>
+                            <li><strong>复制链接：</strong> 点击"复制链接"按钮可以获取笔记的分享链接。</li>
+                            <li><strong>查看模式：</strong> 链接后加?view=1可以获得更好的阅读体验。</li>
+                        </ul>
+                    </div>
+                    
+                    <!-- Markdown语法部分 -->
+                    <div class="help-section">
+                        <h5>Markdown语法</h5>
+                        <ul>
+                            <li><strong>标题：</strong> 使用 # 符号，例如：<code># 一级标题</code>，<code>## 二级标题</code></li>
+                            <li><strong>列表：</strong> 使用 - 或 * 创建无序列表，使用 1. 2. 创建有序列表</li>
+                            <li><strong>链接：</strong> <code>[链接文本](URL)</code></li>
+                            <li><strong>图片：</strong> <code>![替代文本](图片URL)</code></li>
+                            <li><strong>粗体：</strong> <code>**文本**</code> 或 <code>__文本__</code></li>
+                            <li><strong>斜体：</strong> <code>*文本*</code> 或 <code>_文本_</code></li>
+                            <li><strong>代码：</strong> <code>`行内代码`</code> 或使用三个反引号包裹多行代码块</li>
+                            <li><strong>表格：</strong></li>
+                        </ul>
+                        <div class="code-block">| 列1 | 列2 | 列3 |
+| --- | --- | --- |
+| 内容 | 内容 | 内容 |</div>
+                    </div>
+                    
+                    <!-- 安全提示部分 -->
+                    <div class="help-section security-tips">
+                        <h5>安全提示</h5>
+                        <ul>
+                            <li>请勿在此存储敏感个人信息。</li>
+                            <li>即使设置了密码，也建议不要存储高度机密的内容。</li>
+                            <li>定期更改您的笔记密码以提高安全性。</li>
+                            <li>使用复杂密码增强保护强度。</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="custom-modal-footer">
+                    
+                    <button type="button" class="btn small custom-modal-close-btn">关闭</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 删除确认模态框 -->
+        <div id="delete-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>确认删除</h3>
+                    <span class="close-modal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p><span class="warning-text"><strong>警告：</strong>您即将删除此笔记，此操作不可撤销。</span></p>
+                    <p>笔记ID: <span class="key-badge">{{ note['key'] }}</span></p>
+                    
+                    {% if note['password'] %}
+                    <div class="form-group">
+                        <label for="delete-password">请输入密码确认删除：</label>
+                        <input type="password" id="delete-password" class="full-width">
+                        <p class="error-message hidden" id="delete-password-error">密码错误</p>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button class="btn secondary" id="cancel-delete">取消</button>
+                    <button class="btn danger" id="confirm-delete">删除</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 分享选项模态框 -->
+        <div id="share-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>分享选项</h3>
+                    <span class="close-modal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="share-option">
+                        <h4>复制笔记链接</h4>
+                        <div class="share-link-container">
+                            <input type="text" readonly value="{{ url_for('view_note', key=note['key'], view=1 if note['public'] else None, _external=True) }}" id="share-link">
+                            <button id="copy-link-btn" class="btn btn-secondary">
+                                <i class="fas fa-link"></i> 复制链接
+                            </button>
+                        </div>
+                        <p class="form-help">分享此链接，其他人可以{% if note['public'] %}查看{% else %}访问{% endif %}此笔记</p>
+                    </div>
+                    
+                    <div class="share-option">
+                        <h4>复制笔记内容</h4>
+                        <button class="btn full-width" id="copy-content-btn">复制全部内容</button>
+                        <p class="form-help">将笔记的全部文本内容复制到剪贴板</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 下载密码验证模态框 -->
+        <div id="download-password-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>密码验证</h3>
+                    <span class="close-modal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p>此笔记受密码保护，请输入密码以下载内容：</p>
+                    
+                    <div class="form-group">
+                        <label for="download-password">密码：</label>
+                        <input type="password" id="download-password" class="full-width">
+                        <p class="error-message hidden" id="download-password-error">密码错误</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn secondary" id="cancel-download">取消</button>
+                    <button class="btn primary" id="confirm-download">下载</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 添加highlight.js用于代码高亮 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+</body>
+</html>

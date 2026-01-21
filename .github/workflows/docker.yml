@@ -1,0 +1,79 @@
+name: Docker Build & Push
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - "v*"
+  pull_request:
+    branches: [main, master]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    name: 构建 Docker 镜像
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 提取 Docker 元数据
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: 构建并推送 Docker 镜像
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 构建测试 (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "✅ Docker 镜像构建成功"
+          echo "镜像标签: ${{ steps.meta.outputs.tags }}"
+
+  deploy-check:
+    name: 部署检查
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    steps:
+      - name: 部署就绪确认
+        run: |
+          echo "🚀 Docker 镜像已推送到 GitHub Container Registry"
+          echo "镜像地址: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          echo ""
+          echo "部署命令示例:"
+          echo "  docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main"
+          echo "  docker-compose up -d"
