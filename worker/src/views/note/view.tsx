@@ -38,7 +38,31 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
             <div class="container" data-updated-at={note.updated_at}>
                 <div class="note-content">
                     <div class="editor-container" data-view-only={viewOnly ? 'true' : 'false'}>
-                        <div class="editor">
+                        <div class={`editor${!viewOnly ? ' has-toolbar' : ''}`}>
+                            {!viewOnly && (
+                                <div class="editor-toolbar" id="editor-toolbar">
+                                    <button type="button" class="toolbar-btn" data-action="heading1" title="一级标题">H1</button>
+                                    <button type="button" class="toolbar-btn" data-action="heading2" title="二级标题">H2</button>
+                                    <button type="button" class="toolbar-btn" data-action="heading3" title="三级标题">H3</button>
+                                    <span class="toolbar-divider"></span>
+                                    <button type="button" class="toolbar-btn" data-action="bold" title="粗体"><i class="fas fa-bold"></i></button>
+                                    <button type="button" class="toolbar-btn" data-action="italic" title="斜体"><i class="fas fa-italic"></i></button>
+                                    <button type="button" class="toolbar-btn" data-action="strikethrough" title="删除线"><i class="fas fa-strikethrough"></i></button>
+                                    <button type="button" class="toolbar-btn" data-action="highlight" title="高亮"><i class="fas fa-highlighter"></i></button>
+                                    <span class="toolbar-divider"></span>
+                                    <button type="button" class="toolbar-btn" data-action="ul" title="无序列表"><i class="fas fa-list-ul"></i></button>
+                                    <button type="button" class="toolbar-btn" data-action="ol" title="有序列表"><i class="fas fa-list-ol"></i></button>
+                                    <button type="button" class="toolbar-btn" data-action="task" title="任务列表"><i class="fas fa-tasks"></i></button>
+                                    <span class="toolbar-divider"></span>
+                                    <button type="button" class="toolbar-btn" data-action="table" title="表格"><i class="fas fa-table"></i></button>
+                                    <button type="button" class="toolbar-btn" data-action="code" title="代码块"><i class="fas fa-code"></i></button>
+                                    <button type="button" class="toolbar-btn" data-action="quote" title="引用"><i class="fas fa-quote-left"></i></button>
+                                    <button type="button" class="toolbar-btn" data-action="link" title="链接"><i class="fas fa-link"></i></button>
+                                    <button type="button" class="toolbar-btn" data-action="image" title="图片"><i class="fas fa-image"></i></button>
+                                    <span class="toolbar-divider"></span>
+                                    <button type="button" class="toolbar-btn" data-action="hr" title="分隔线"><i class="fas fa-minus"></i></button>
+                                </div>
+                            )}
                             <textarea
                                 id="content"
                                 name="content"
