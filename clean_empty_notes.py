@@ -13,18 +13,17 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 # 配置日志
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    filename='clean_notes.log'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", filename="clean_notes.log"
 )
-logger = logging.getLogger('clean_empty_notes')
+logger = logging.getLogger("clean_empty_notes")
 
 # 数据库路径
-DB_PATH = '/app/data/notes.db'
+DB_PATH = "/app/data/notes.db"
 
 # 加密相关配置（与主应用保持一致）
-ENCRYPTION_KEY = os.environ.get('ENCRYPTION_KEY', 'this_is_a_secret_key_please_change_in_production')
-SALT = os.environ.get('ENCRYPTION_SALT', 'static_salt_change_this').encode()
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "this_is_a_secret_key_please_change_in_production")
+SALT = os.environ.get("ENCRYPTION_SALT", "static_salt_change_this").encode()
+
 
 def get_encryption_key():
     """从环境变量生成加密密钥"""
@@ -36,6 +35,7 @@ def get_encryption_key():
     )
     key = base64.urlsafe_b64encode(kdf.derive(ENCRYPTION_KEY.encode()))
     return key
+
 
 def decrypt_content(encrypted_content):
     """解密笔记内容"""
@@ -50,11 +50,13 @@ def decrypt_content(encrypted_content):
         logger.error(f"解密错误: {e}")
         return "[解密失败]"
 
+
 def get_db_connection():
     """获取数据库连接"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def clean_empty_notes():
     """清理空笔记"""
@@ -68,21 +70,21 @@ def clean_empty_notes():
     conn = get_db_connection()
     try:
         # 获取所有笔记
-        notes = conn.execute('SELECT * FROM notes').fetchall()
+        notes = conn.execute("SELECT * FROM notes").fetchall()
 
         empty_notes_count = 0
         for note in notes:
             content = ""
             # 解密内容
-            if note['encrypted']:
-                content = decrypt_content(note['content'])
+            if note["encrypted"]:
+                content = decrypt_content(note["content"])
             else:
-                content = note['content']
+                content = note["content"]
 
             # 检查内容是否为空且创建时间超过24小时
-            if (not content or content.strip() == "") and note['created_at'] < one_day_ago:
+            if (not content or content.strip() == "") and note["created_at"] < one_day_ago:
                 # 删除空笔记
-                conn.execute('DELETE FROM notes WHERE key = ?', (note['key'],))
+                conn.execute("DELETE FROM notes WHERE key = ?", (note["key"],))
                 empty_notes_count += 1
                 logger.info(f"已删除空笔记: {note['key']}, 创建于: {datetime.fromtimestamp(note['created_at'])}")
 
@@ -92,6 +94,7 @@ def clean_empty_notes():
         logger.error(f"清理过程中发生错误: {e}")
     finally:
         conn.close()
+
 
 if __name__ == "__main__":
     clean_empty_notes()
