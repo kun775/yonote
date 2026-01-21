@@ -1,5 +1,7 @@
 # YoNote
 
+[English](./README_EN.md) | 简体中文
+
 一个轻量级的在线 Markdown 笔记应用，支持实时预览、自动保存、密码保护和内容加密。
 
 ## 功能特性
@@ -14,7 +16,20 @@
 - **内容加密**: 使用 Fernet (AES) 加密存储
 - **响应式设计**: 适配桌面和移动设备
 
+## 部署方式
+
+YoNote 支持两种部署方式：
+
+| 方式 | 说明 | 适用场景 |
+|------|------|----------|
+| **Flask 版本** | Python + SQLite | 传统服务器、Docker 部署 |
+| **Worker 版本** | Cloudflare Workers + D1 | Serverless、边缘计算 |
+
+> Worker 版本部署指南请参考 [worker/README.md](./worker/README.md)
+
 ## 技术栈
+
+### Flask 版本
 
 | 层级 | 技术 |
 |------|------|
@@ -26,13 +41,22 @@
 | 前端渲染 | Marked.js, KaTeX, Highlight.js |
 | 容器化 | Docker + Supervisor |
 
+### Worker 版本
+
+| 层级 | 技术 |
+|------|------|
+| 运行时 | Cloudflare Workers |
+| 框架 | Hono |
+| 数据库 | D1 (SQLite) |
+| 加密 | Web Crypto API (AES-GCM) |
+
 ## 快速开始
 
 ### 本地开发
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/yonote.git
+git clone https://github.com/kun775/yonote.git
 cd yonote
 
 # 安装依赖
@@ -52,6 +76,26 @@ docker-compose up -d
 # 查看日志
 docker logs -f yonote
 ```
+
+### Cloudflare Workers 部署
+
+```bash
+cd worker
+
+# 安装依赖
+npm install
+
+# 创建 D1 数据库
+wrangler d1 create yonote
+
+# 初始化数据库
+npm run db:init
+
+# 部署
+npm run deploy
+```
+
+详细步骤请参考 [Worker 部署文档](./worker/README.md)。
 
 ## 环境变量
 
@@ -101,8 +145,12 @@ yonote/
 │   ├── app.js                # 前端主逻辑
 │   ├── function.js           # 工具函数
 │   └── style.css             # 样式表
-└── data/
-    └── notes.db              # SQLite 数据库
+├── data/
+│   └── notes.db              # SQLite 数据库
+└── worker/                   # Cloudflare Workers 版本
+    ├── src/                  # 源代码
+    ├── wrangler.toml         # Wrangler 配置
+    └── README.md             # Worker 部署文档
 ```
 
 ## 开发指南
