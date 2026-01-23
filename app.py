@@ -343,11 +343,11 @@ def index():
 @app.route("/<key>", methods=["GET"])
 def view_note(key):
     # 过滤掉明显不是笔记 key 的路径
-    if len(key) > 128 or key in ['favicon.ico', 'robots.txt', 'sitemap.xml']:
+    if len(key) > 128 or key in ["favicon.ico", "robots.txt", "sitemap.xml"]:
         abort(404)
 
     # 只允许字母、数字、下划线和短横线
-    if not re.match(r'^[a-zA-Z0-9_-]+$', key):
+    if not re.match(r"^[a-zA-Z0-9_-]+$", key):
         abort(404)
 
     # 使用 Flask.g 存储请求范围的变量，避免全局变量并发问题
