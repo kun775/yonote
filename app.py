@@ -757,20 +757,26 @@ def clear_lockout(key, ip_address):
         conn.commit()
 
 
-@app.route("/get_note_data")
-def get_note_data():
-    # 假设您已经有了这些变量
+@app.route("/<key>/get_note_data")
+def get_note_data(key):
+    """获取笔记数据的 API 端点"""
+    with get_db_connection() as conn:
+        note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
+
     if not note:
-        flash("笔记不存在")
-        return jsonify({"error": "笔记不存在"})
+        return jsonify({"error": "笔记不存在"}), 404
+
+    # 判断是否只读模式
+    view_only = note["password"] and not session.get(f"auth_{key}", False)
+
     data = {
         "updatedAt": note["updated_at"],
         "noteKey": note["key"],
         "viewOnly": view_only,
-        "password": note["password"],
-        "public": note["public"],
+        "password": bool(note["password"]),
+        "public": bool(note["public"]),
     }
-    return jsonify(data)  # 返回 JSON 格式的数据
+    return jsonify(data)
 
 
 if __name__ == "__main__":
