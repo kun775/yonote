@@ -3,7 +3,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { AppEnv } from '../types';
 
 const AUTH_COOKIE_NAME = 'yonote_auth';
-const AUTH_COOKIE_MAX_AGE = 3600;
+const AUTH_COOKIE_MAX_AGE = 7 * 24 * 3600; // 7天滑动过期
 const AUTH_COOKIE_VERSION = 'v1';
 
 interface AuthData {

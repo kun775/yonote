@@ -6,6 +6,14 @@ import { adminRoutes } from './routes/admin';
 
 const app = new Hono<AppEnv>();
 
+// 静态资源缓存控制
+app.use('/static/*', async (c, next) => {
+    await next();
+    // 生产环境设置较长缓存时间,开发环境设置短缓存
+    const cacheTime = c.env.ENVIRONMENT === 'production' ? 86400 : 300; // 生产1天,开发5分钟
+    c.header('Cache-Control', `public, max-age=${cacheTime}`);
+});
+
 // Static files are served automatically by Wrangler [assets] configuration
 
 app.route('/api', apiRoutes);

@@ -111,8 +111,8 @@
                         </a>
                     {% endif %}
                     
-                    {% if not view_only %}
-                        <button id="preview-toggle-btn" class="btn small">
+                    {% if not view_only or authenticated %}
+                        <button id="preview-toggle-btn" class="btn small" data-has-password="{{ 'true' if note['password'] else 'false' }}">
                             <i class="fas fa-eye"></i> 预览
                         </button>
                         <button id="settings-btn" class="btn small">
@@ -133,7 +133,7 @@
             </div>
         </div>
         
-        {% if not view_only %}
+        {% if not view_only or authenticated %}
             <div id="settings-panel" class="settings-panel hidden">
                 <div class="settings-header">
                     <h3>笔记设置</h3>
@@ -173,6 +173,11 @@
                                     </div>
                                 {% endif %}
                             </div>
+                        </div>
+                        <div id="current-password-container" class="form-group hidden">
+                            <label for="current-password">当前密码：</label>
+                            <input type="password" id="current-password" name="current_password">
+                            <p class="form-help">修改或移除密码前需要验证当前密码</p>
                         </div>
                         <div id="new-password-container" class="form-group hidden">
                             <label for="new-password">新密码：</label>
@@ -354,7 +359,29 @@
             </div>
         </div>
     </div>
-    
+
+    <!-- 预览编辑切换密码验证模态框 -->
+    <div id="preview-password-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>密码验证</h3>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>此笔记受密码保护,请输入密码以切换到编辑模式:</p>
+                <div class="form-group">
+                    <label for="preview-password">密码:</label>
+                    <input type="password" id="preview-password" class="full-width" placeholder="请输入密码">
+                    <p class="error-message hidden" id="preview-password-error">密码错误</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn secondary" id="cancel-preview-password">取消</button>
+                <button class="btn primary" id="confirm-preview-password">确认</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 添加highlight.js用于代码高亮 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
 </body>

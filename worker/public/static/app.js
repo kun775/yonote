@@ -13,8 +13,6 @@ console.log(`
 
 // 自动保存功能
 let saveTimeout;
-// 预览切换
-let isPreviewMode = false;
 
 // 初始化公开选项状态
 updatePublicOption();
@@ -92,6 +90,16 @@ document.addEventListener('DOMContentLoaded', (event) => {
     const passwordRadios = document.querySelectorAll('input[name="password_action"]');
     const publicCheckbox = document.getElementById('public-checkbox');
     const publicOptionContainer = document.getElementById('public-option-container');
+
+    // Flash 消息自动消失
+    const flashMessages = document.querySelectorAll('.flash-message');
+    if (flashMessages.length > 0) {
+        flashMessages.forEach(msg => {
+            setTimeout(() => {
+                msg.style.display = 'none';
+            }, 3000); // 3秒后隐藏（0.3s淡入 + 2.7s显示）
+        });
+    }
 
     // 初始化拖拽分栏
     initResizer();
@@ -251,17 +259,44 @@ document.addEventListener('DOMContentLoaded', (event) => {
     if (passwordRadios) {
         passwordRadios.forEach(radio => {
             radio.addEventListener('change', function() {
+                const currentPasswordContainer = document.getElementById('current-password-container');
+                const hasPassword = window.password; // 从全局变量获取是否已有密码
+
                 // 更新密码输入框显示
                 if (this.value === 'change' && this.checked) {
+                    // 更改密码/设置密码
+                    if (hasPassword) {
+                        // 已有密码：显示当前密码+新密码
+                        if (currentPasswordContainer) {
+                            currentPasswordContainer.classList.remove('hidden');
+                        }
+                    } else {
+                        // 第一次设置密码：只显示新密码，不需要当前密码
+                        if (currentPasswordContainer) {
+                            currentPasswordContainer.classList.add('hidden');
+                        }
+                    }
                     if (newPasswordContainer) {
                         newPasswordContainer.classList.remove('hidden');
                     }
+                } else if (this.value === 'remove' && this.checked) {
+                    // 移除密码：只显示当前密码
+                    if (currentPasswordContainer) {
+                        currentPasswordContainer.classList.remove('hidden');
+                    }
+                    if (newPasswordContainer) {
+                        newPasswordContainer.classList.add('hidden');
+                    }
                 } else {
+                    // 保持不变/无密码：都隐藏
+                    if (currentPasswordContainer) {
+                        currentPasswordContainer.classList.add('hidden');
+                    }
                     if (newPasswordContainer) {
                         newPasswordContainer.classList.add('hidden');
                     }
                 }
-                
+
                 // 更新公开选项状态
                 updatePublicOption();
             });
@@ -525,7 +560,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
             const response = await fetch(`/${noteKey}/verify`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/form-data',
+                    'Content-Type': 'application/x-www-form-urlencoded',
                 },
                 body: new URLSearchParams({
                     'password': password,
@@ -538,19 +573,73 @@ document.addEventListener('DOMContentLoaded', (event) => {
             return false;
         }
     };
-    
+
+    // 创建 Promise 化的密码输入函数
+    const showPasswordModal = () => {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('preview-password-modal');
+            const passwordInput = document.getElementById('preview-password');
+            const errorMsg = document.getElementById('preview-password-error');
+            const confirmBtn = document.getElementById('confirm-preview-password');
+            const cancelBtn = document.getElementById('cancel-preview-password');
+            const closeBtn = modal.querySelector('.close-modal');
+
+            // 重置状态
+            passwordInput.value = '';
+            errorMsg.classList.add('hidden');
+            modal.classList.remove('hidden');
+            passwordInput.focus();
+
+            const cleanup = () => {
+                modal.classList.add('hidden');
+                confirmBtn.removeEventListener('click', handleConfirm);
+                cancelBtn.removeEventListener('click', handleCancel);
+                closeBtn.removeEventListener('click', handleCancel);
+                passwordInput.removeEventListener('keypress', handleKeypress);
+            };
+
+            const handleConfirm = () => {
+                const password = passwordInput.value;
+                if (password) {
+                    cleanup();
+                    resolve(password);
+                }
+            };
+
+            const handleCancel = () => {
+                cleanup();
+                resolve(null);
+            };
+
+            const handleKeypress = (e) => {
+                if (e.key === 'Enter') {
+                    handleConfirm();
+                } else if (e.key === 'Escape') {
+                    handleCancel();
+                }
+            };
+
+            confirmBtn.addEventListener('click', handleConfirm);
+            cancelBtn.addEventListener('click', handleCancel);
+            closeBtn.addEventListener('click', handleCancel);
+            passwordInput.addEventListener('keypress', handleKeypress);
+        });
+    };
+
     // 切换预览模式
     const togglePreviewMode = async () => {
         // 如果当前是预览模式，需要切换到编辑模式时验证密码
         if (isPreviewMode) {
             const hasPassword = previewButton.dataset.hasPassword === 'true';
             if (hasPassword) {
-                const password = prompt('请输入笔记密码：');
+                const password = await showPasswordModal();
                 if (!password) return;
 
                 const verified = await verifyPassword(password);
                 if (!verified) {
-                    alert('密码错误！');
+                    const errorMsg = document.getElementById('preview-password-error');
+                    errorMsg.classList.remove('hidden');
+                    setTimeout(() => errorMsg.classList.add('hidden'), 3000);
                     return;
                 }
             }

@@ -1,18 +1,22 @@
 import base64
 import hashlib
+import hmac
 import os
+import re
 import secrets
 import sqlite3
 import string
 import time
+from contextlib import contextmanager
 from datetime import datetime
 
 import bleach
 import markdown
+from cachetools import TTLCache
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from flask import Flask, abort, flash, jsonify, make_response, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, g, jsonify, make_response, redirect, render_template, request, session, url_for
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from markupsafe import Markup, escape
@@ -35,12 +39,11 @@ limiter = Limiter(
     default_limits=["2000000 per day", "50000 per hour"],
     storage_uri="memory://",
 )
-view_only = False
-note = None
-# 密码错误计数器
-password_attempts = {}
+# 密码错误相关常量
 MAX_PASSWORD_ATTEMPTS = 5  # 最大密码尝试次数
 PASSWORD_LOCKOUT_TIME = 30 * 60  # 锁定时间（秒）
+# 密码错误计数器 - 使用 TTL 缓存自动清理过期条目，防止内存泄漏
+password_attempts = TTLCache(maxsize=10000, ttl=PASSWORD_LOCKOUT_TIME)
 
 # 加密相关
 ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "this_is_a_secret_key_please_change_in_production")
@@ -227,36 +230,40 @@ def time_ago_filter(timestamp):
         return "未知时间"
 
 
+@contextmanager
 def get_db_connection():
+    """数据库连接 context manager，确保连接被正确关闭"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_db():
-    conn = get_db_connection()
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS notes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        key TEXT UNIQUE NOT NULL,
-        content TEXT NOT NULL,
-        password TEXT,
-        public BOOLEAN DEFAULT 0,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        encrypted BOOLEAN DEFAULT 1
-    )
-    """)
-    # 添加锁定表
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS lockouts (
-        key TEXT PRIMARY KEY,
-        ip_address TEXT NOT NULL,
-        locked_until INTEGER NOT NULL
-    )
-    """)
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT UNIQUE NOT NULL,
+            content TEXT NOT NULL,
+            password TEXT,
+            public BOOLEAN DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            encrypted BOOLEAN DEFAULT 1
+        )
+        """)
+        # 添加锁定表
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS lockouts (
+            key TEXT PRIMARY KEY,
+            ip_address TEXT NOT NULL,
+            locked_until INTEGER NOT NULL
+        )
+        """)
+        conn.commit()
 
 
 with app.app_context():
@@ -275,9 +282,8 @@ def generate_word_key(min_length=3, max_length=7):
         key = "".join(secrets.choice(chars) for _ in range(length))
 
         # 检查是否已存在
-        conn = get_db_connection()
-        existing = conn.execute("SELECT key FROM notes WHERE key = ?", (key,)).fetchone()
-        conn.close()
+        with get_db_connection() as conn:
+            existing = conn.execute("SELECT key FROM notes WHERE key = ?", (key,)).fetchone()
 
         if not existing:
             return key
@@ -308,6 +314,10 @@ def remove_authentication(key):
 @app.before_request
 def before_request():
     init_db()
+    # 设置 session 为 permanent,使其使用配置的过期时间（7天滑动过期）
+    session.permanent = True
+    # 每次请求刷新过期时间，实现滑动过期策略
+    session.modified = True
 
 
 @app.route("/")
@@ -316,13 +326,12 @@ def index():
     key = generate_word_key()
     current_time = int(time.time())
 
-    conn = get_db_connection()
-    conn.execute(
-        "INSERT INTO notes (key, content, public, created_at, updated_at, encrypted) VALUES (?, ?, ?, ?, ?, ?)",
-        (key, "", 0, current_time, current_time, 1),
-    )
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO notes (key, content, public, created_at, updated_at, encrypted) VALUES (?, ?, ?, ?, ?, ?)",
+            (key, "", 0, current_time, current_time, 1),
+        )
+        conn.commit()
 
     # 直接设置为已认证状态，避免可能的密码提示
     set_authenticated(key)
@@ -333,52 +342,55 @@ def index():
 
 @app.route("/<key>", methods=["GET"])
 def view_note(key):
-    if len(key) > 128:
-        return redirect(url_for("index"))
+    # 过滤掉明显不是笔记 key 的路径
+    if len(key) > 128 or key in ['favicon.ico', 'robots.txt', 'sitemap.xml']:
+        abort(404)
 
-    global view_only, note
-    view_only = "view" in request.args  # 只有明确请求查看模式时才是只读
+    # 只允许字母、数字、下划线和短横线
+    if not re.match(r'^[a-zA-Z0-9_-]+$', key):
+        abort(404)
 
-    conn = get_db_connection()
-    note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
+    # 使用 Flask.g 存储请求范围的变量，避免全局变量并发问题
+    g.view_only = "view" in request.args  # 只有明确请求查看模式时才是只读
 
-    # 如果笔记不存在，使用用户输入的key创建新笔记
-    if not note:
-        current_time = int(time.time())
-        conn.execute(
-            "INSERT INTO notes (key, content, public, created_at, updated_at, encrypted) VALUES (?, ?, ?, ?, ?, ?)",
-            (key, "", 0, current_time, current_time, 1),
-        )
-        conn.commit()
-        note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
-        # 为新创建的笔记设置认证状态
-        set_authenticated(key)
+    with get_db_connection() as conn:
+        g.note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
+
+        # 如果笔记不存在，使用用户输入的key创建新笔记
+        if not g.note:
+            current_time = int(time.time())
+            conn.execute(
+                "INSERT INTO notes (key, content, public, created_at, updated_at, encrypted) VALUES (?, ?, ?, ?, ?, ?)",
+                (key, "", 0, current_time, current_time, 1),
+            )
+            conn.commit()
+            g.note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
+            # 为新创建的笔记设置认证状态
+            set_authenticated(key)
 
     # 解密笔记内容
     decrypted_content = ""
-    if note["encrypted"]:
-        decrypted_content = decrypt_content(note["content"])
+    if g.note["encrypted"]:
+        decrypted_content = decrypt_content(g.note["content"])
     else:
-        decrypted_content = note["content"]
+        decrypted_content = g.note["content"]
 
     # 创建一个新的字典，包含解密后的内容
-    note_dict = dict(note)
+    note_dict = dict(g.note)
     note_dict["content"] = decrypted_content
-
-    conn.close()
 
     # 检查认证状态
     authenticated = is_authenticated(key)
 
     # 如果有密码保护且未认证，显示密码输入界面（除非是公开笔记且请求只读模式）
     if note_dict["password"] and not authenticated:
-        if note_dict["public"] and view_only:
+        if note_dict["public"] and g.view_only:
             return render_template("view.html", note=note_dict, view_only=True, authenticated=False)
         else:
             return render_template("password.html", key=key, next_url=f"/{key}", is_public=note_dict["public"])
 
     # 如果明确请求查看模式，则以只读方式显示
-    if view_only:
+    if g.view_only:
         return render_template("view.html", note=note_dict, view_only=True, authenticated=authenticated)
 
     # 默认进入编辑模式
@@ -398,9 +410,8 @@ def verify_password(key):
         flash(f"由于多次密码错误，请等待{remaining}秒后再试")
         return redirect(url_for("view_note", key=key))
 
-    conn = get_db_connection()
-    note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
 
     if not note:
         abort(404)
@@ -410,7 +421,8 @@ def verify_password(key):
     attempts = password_attempts.get(attempt_key, 0)
 
     hashed_input = hash_password(password)
-    if note["password"] == hashed_input:
+    # 使用时序安全的比较函数，防止时序攻击
+    if hmac.compare_digest(note["password"], hashed_input):
         # 密码正确，重置尝试次数
         if attempt_key in password_attempts:
             del password_attempts[attempt_key]
@@ -446,45 +458,80 @@ def update_note(key):
     new_password = request.form.get("new_password", "")
     public = 1 if request.form.get("public") else 0
 
-    conn = get_db_connection()
-    note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
+    with get_db_connection() as conn:
+        note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
 
-    if not note:
-        conn.close()
-        abort(404)
+        if not note:
+            abort(404)
 
-    # 安全检查：如果笔记有密码保护，确保用户已通过验证
-    if note["password"] and not is_authenticated(key):
-        conn.close()
-        flash("未授权的操作")
-        return redirect(url_for("view_note", key=key))
+        # 安全检查：如果笔记有密码保护，确保用户已通过验证
+        if note["password"] and not is_authenticated(key):
+            flash("未授权的操作")
+            return redirect(url_for("view_note", key=key))
 
-    # 处理密码
-    if password_action == "keep":
-        updated_password = note["password"]
-    elif password_action == "remove":
-        updated_password = None
-        # 如果移除密码，笔记不能是公开的
-        public = 0
-    elif password_action == "change":  # 移除内容检查
-        updated_password = hash_password(new_password) if new_password else None
-    else:
-        updated_password = note["password"]
+        if password_action in ("remove", "change") and note["password"]:
+            current_password = request.form.get("current_password", "")
+            ip_address = get_remote_address()
 
-    # 如果没有密码，笔记不能是公开的（必须是完全公开）
-    if not updated_password:
-        public = 0
+            is_locked, locked_until = is_locked_out(key, ip_address)
+            if is_locked:
+                remaining = int(locked_until - time.time())
+                flash(f"由于多次密码错误，请等待{remaining}秒后再试")
+                return redirect(url_for("view_note", key=key))
 
-    # 加密内容
-    encrypted_content = encrypt_content(content)
+            if not current_password:
+                flash("请输入当前密码")
+                return redirect(url_for("view_note", key=key))
 
-    current_time = int(time.time())
-    conn.execute(
-        "UPDATE notes SET content = ?, password = ?, public = ?, updated_at = ?, encrypted = ? WHERE key = ?",
-        (encrypted_content, updated_password, public, current_time, 1, key),
-    )
-    conn.commit()
-    conn.close()
+            attempt_key = f"{key}:{ip_address}"
+            attempts = password_attempts.get(attempt_key, 0)
+            hashed_input = hash_password(current_password)
+
+            # 使用时序安全的比较函数，防止时序攻击
+            if not hmac.compare_digest(note["password"], hashed_input):
+                attempts += 1
+                password_attempts[attempt_key] = attempts
+
+                if attempts >= MAX_PASSWORD_ATTEMPTS:
+                    locked_until = add_lockout(key, ip_address)
+                    del password_attempts[attempt_key]
+                    remaining = int(locked_until - time.time())
+                    flash(f"由于多次密码错误，请等待{remaining}秒后再试")
+                else:
+                    remaining = MAX_PASSWORD_ATTEMPTS - attempts
+                    flash(f"密码错误，还有{remaining}次尝试机会")
+
+                return redirect(url_for("view_note", key=key))
+
+            if attempt_key in password_attempts:
+                del password_attempts[attempt_key]
+            clear_lockout(key, ip_address)
+
+        # 处理密码
+        if password_action == "keep":
+            updated_password = note["password"]
+        elif password_action == "remove":
+            updated_password = None
+            # 如果移除密码，笔记不能是公开的
+            public = 0
+        elif password_action == "change":  # 移除内容检查
+            updated_password = hash_password(new_password) if new_password else None
+        else:
+            updated_password = note["password"]
+
+        # 如果没有密码，笔记不能是公开的（必须是完全公开）
+        if not updated_password:
+            public = 0
+
+        # 加密内容
+        encrypted_content = encrypt_content(content)
+
+        current_time = int(time.time())
+        conn.execute(
+            "UPDATE notes SET content = ?, password = ?, public = ?, updated_at = ?, encrypted = ? WHERE key = ?",
+            (encrypted_content, updated_password, public, current_time, 1, key),
+        )
+        conn.commit()
 
     # 如果更改了密码，更新认证状态
     if password_action != "keep":
@@ -505,28 +552,25 @@ def auto_save(key):
 
     content = data.get("content", "")
 
-    conn = get_db_connection()
-    note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
+    with get_db_connection() as conn:
+        note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
 
-    if not note:
-        conn.close()
-        return jsonify({"status": "error", "message": "笔记不存在"}), 404
+        if not note:
+            return jsonify({"status": "error", "message": "笔记不存在"}), 404
 
-    # 安全检查：如果笔记有密码保护，确保用户已通过验证
-    if note["password"] and not is_authenticated(key):
-        conn.close()
-        return jsonify({"status": "error", "message": "未授权的操作"}), 403
+        # 安全检查：如果笔记有密码保护，确保用户已通过验证
+        if note["password"] and not is_authenticated(key):
+            return jsonify({"status": "error", "message": "未授权的操作"}), 403
 
-    # 加密内容
-    encrypted_content = encrypt_content(content)
+        # 加密内容
+        encrypted_content = encrypt_content(content)
 
-    current_time = int(time.time())
-    conn.execute(
-        "UPDATE notes SET content = ?, updated_at = ?, encrypted = ? WHERE key = ?",
-        (encrypted_content, current_time, 1, key),
-    )
-    conn.commit()
-    conn.close()
+        current_time = int(time.time())
+        conn.execute(
+            "UPDATE notes SET content = ?, updated_at = ?, encrypted = ? WHERE key = ?",
+            (encrypted_content, current_time, 1, key),
+        )
+        conn.commit()
 
     return jsonify({"status": "success", "message": "自动保存成功", "timestamp": current_time})
 
@@ -549,9 +593,8 @@ def render_markdown():
 @app.route("/<key>/get-timestamp", methods=["GET"])
 def get_timestamp(key):
     """获取笔记的最后更新时间戳"""
-    conn = get_db_connection()
-    note = conn.execute("SELECT updated_at FROM notes WHERE key = ?", (key,)).fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        note = conn.execute("SELECT updated_at FROM notes WHERE key = ?", (key,)).fetchone()
 
     if not note:
         return jsonify({"error": "笔记不存在"}), 404
@@ -571,9 +614,8 @@ def verify_delete_password(key):
 
     password = data.get("password", "")
 
-    conn = get_db_connection()
-    note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
 
     if not note:
         return jsonify({"success": False, "message": "笔记不存在"})
@@ -582,7 +624,8 @@ def verify_delete_password(key):
         return jsonify({"success": True})
 
     hashed_input = hash_password(password)
-    if note["password"] == hashed_input:
+    # 使用时序安全的比较函数，防止时序攻击
+    if hmac.compare_digest(note["password"], hashed_input):
         return jsonify({"success": True})
     else:
         return jsonify({"success": False, "message": "密码错误"})
@@ -591,23 +634,20 @@ def verify_delete_password(key):
 @app.route("/<key>/delete", methods=["GET"])
 def delete_note(key):
     """删除笔记"""
-    conn = get_db_connection()
-    note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
+    with get_db_connection() as conn:
+        note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
 
-    if not note:
-        conn.close()
-        return redirect(url_for("index"))
+        if not note:
+            return redirect(url_for("index"))
 
-    # 如果笔记有密码保护，确保用户已通过验证
-    if note["password"] and not is_authenticated(key):
-        conn.close()
-        flash("未授权的操作")
-        return redirect(url_for("view_note", key=key))
+        # 如果笔记有密码保护，确保用户已通过验证
+        if note["password"] and not is_authenticated(key):
+            flash("未授权的操作")
+            return redirect(url_for("view_note", key=key))
 
-    # 执行删除
-    conn.execute("DELETE FROM notes WHERE key = ?", (key,))
-    conn.commit()
-    conn.close()
+        # 执行删除
+        conn.execute("DELETE FROM notes WHERE key = ?", (key,))
+        conn.commit()
 
     # 清除会话中的认证信息
     remove_authentication(key)
@@ -624,9 +664,8 @@ def verify_download_password(key):
 
     password = data.get("password", "")
 
-    conn = get_db_connection()
-    note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
 
     if not note:
         return jsonify({"success": False, "message": "笔记不存在"})
@@ -635,7 +674,8 @@ def verify_download_password(key):
         return jsonify({"success": True})
 
     hashed_input = hash_password(password)
-    if note["password"] == hashed_input:
+    # 使用时序安全的比较函数，防止时序攻击
+    if hmac.compare_digest(note["password"], hashed_input):
         return jsonify({"success": True})
     else:
         return jsonify({"success": False, "message": "密码错误"})
@@ -646,35 +686,31 @@ def download_note(key):
     """下载笔记为txt文件"""
     password = request.args.get("password", "")
 
-    conn = get_db_connection()
-    note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
+    with get_db_connection() as conn:
+        note = conn.execute("SELECT * FROM notes WHERE key = ?", (key,)).fetchone()
 
-    if not note:
-        conn.close()
-        abort(404)
+        if not note:
+            abort(404)
 
-    # 检查权限
-    authenticated = is_authenticated(key)
+        # 检查权限
+        authenticated = is_authenticated(key)
 
-    # 如果笔记有密码保护且不公开，需要验证密码
-    if note["password"] and not note["public"] and not authenticated:
-        if password:
-            hashed_input = hash_password(password)
-            if note["password"] != hashed_input:
-                conn.close()
+        # 如果笔记有密码保护且不公开，需要验证密码
+        if note["password"] and not note["public"] and not authenticated:
+            if password:
+                hashed_input = hash_password(password)
+                # 使用时序安全的比较函数，防止时序攻击
+                if not hmac.compare_digest(note["password"], hashed_input):
+                    abort(403)
+            else:
                 abort(403)
+
+        # 解密笔记内容
+        content = ""
+        if note["encrypted"]:
+            content = decrypt_content(note["content"])
         else:
-            conn.close()
-            abort(403)
-
-    # 解密笔记内容
-    content = ""
-    if note["encrypted"]:
-        content = decrypt_content(note["content"])
-    else:
-        content = note["content"]
-
-    conn.close()
+            content = note["content"]
 
     # 创建响应
     response = make_response(content)
@@ -692,11 +728,10 @@ def favicon():
 
 def is_locked_out(key, ip_address):
     """检查是否被锁定"""
-    conn = get_db_connection()
-    lockout = conn.execute(
-        "SELECT locked_until FROM lockouts WHERE key = ? AND ip_address = ?", (key, ip_address)
-    ).fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        lockout = conn.execute(
+            "SELECT locked_until FROM lockouts WHERE key = ? AND ip_address = ?", (key, ip_address)
+        ).fetchone()
 
     if lockout and lockout["locked_until"] > time.time():
         return True, lockout["locked_until"]
@@ -706,22 +741,20 @@ def is_locked_out(key, ip_address):
 def add_lockout(key, ip_address):
     """添加锁定记录"""
     locked_until = int(time.time()) + PASSWORD_LOCKOUT_TIME
-    conn = get_db_connection()
-    conn.execute(
-        "INSERT OR REPLACE INTO lockouts (key, ip_address, locked_until) VALUES (?, ?, ?)",
-        (key, ip_address, locked_until),
-    )
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO lockouts (key, ip_address, locked_until) VALUES (?, ?, ?)",
+            (key, ip_address, locked_until),
+        )
+        conn.commit()
     return locked_until
 
 
 def clear_lockout(key, ip_address):
     """清除锁定记录"""
-    conn = get_db_connection()
-    conn.execute("DELETE FROM lockouts WHERE key = ? AND ip_address = ?", (key, ip_address))
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM lockouts WHERE key = ? AND ip_address = ?", (key, ip_address))
+        conn.commit()
 
 
 @app.route("/get_note_data")

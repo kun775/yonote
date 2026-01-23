@@ -17,7 +17,7 @@ class Config:
     SESSION_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
-    PERMANENT_SESSION_LIFETIME = timedelta(hours=1)
+    PERMANENT_SESSION_LIFETIME = timedelta(days=7)  # 7天滑动过期
 
     # 认证配置
     TOKEN_EXPIRY = timedelta(hours=24)

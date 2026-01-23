@@ -413,6 +413,8 @@ textarea {
     border-radius: 4px;
     margin-bottom: 10px;
     text-align: center;
+    animation: fadeIn 0.3s, fadeOut 0.3s 2.7s;
+    animation-fill-mode: forwards;
 }
 
 @keyframes fadeIn {
@@ -1405,6 +1407,10 @@ textarea.preview-mode {
 .editor-container.preview-mode .preview {
     width: 100vw; /* 预览模式下预览框宽度100% */
     max-width: 100%;
+}
+
+.editor-container.preview-mode .resizer {
+    display: none; /* 预览模式下隐藏分隔条 */
 }
 
 /* ==================== 移动端优化（整合版）==================== */

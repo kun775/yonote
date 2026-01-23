@@ -204,6 +204,31 @@ noteRoutes.post('/:key/update', async (c) => {
         return c.redirect(`/${key}`);
     }
 
+    if (note.password && (passwordAction === 'remove' || passwordAction === 'change')) {
+        const currentPassword = formData['current_password'] as string || '';
+
+        const lockoutStatus = await isLockedOut(c, key);
+        if (lockoutStatus.locked) {
+            const errorMsg = `由于多次密码错误，请等待${lockoutStatus.remaining}秒后再试`;
+            return c.redirect(`/${key}?error=${encodeURIComponent(errorMsg)}`);
+        }
+
+        if (!currentPassword) {
+            return c.redirect(`/${key}?error=${encodeURIComponent('请输入当前密码')}`);
+        }
+
+        const isValid = await verifyPassword(currentPassword, note.password);
+        if (!isValid) {
+            const result = await recordFailedAttempt(c, key);
+            const errorMsg = result.locked
+                ? '由于多次密码错误，请等待30分钟后再试'
+                : `密码错误，还有${result.attemptsRemaining}次尝试机会`;
+            return c.redirect(`/${key}?error=${encodeURIComponent(errorMsg)}`);
+        }
+
+        await clearFailedAttempts(c, key);
+    }
+
     let updatedPassword: string | null = note.password;
 
     if (passwordAction === 'remove') {

@@ -95,9 +95,9 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                                 </a>
                             )}
 
-                            {!viewOnly && (
+                            {(!viewOnly || authenticated) && (
                                 <>
-                                    <button id="preview-toggle-btn" class="btn small">
+                                    <button id="preview-toggle-btn" class="btn small" data-has-password={note.password ? 'true' : 'false'}>
                                         <i class="fas fa-eye"></i> 预览
                                     </button>
                                     <button id="settings-btn" class="btn small">
@@ -119,7 +119,7 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                     </div>
                 </div>
 
-                {!viewOnly && (
+                {(!viewOnly || authenticated) && (
                     <div id="settings-panel" class="settings-panel hidden">
                         <div class="settings-header">
                             <h3>笔记设置</h3>
@@ -162,6 +162,11 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                                             </>
                                         )}
                                     </div>
+                                </div>
+                                <div id="current-password-container" class="form-group hidden">
+                                    <label for="current-password">当前密码：</label>
+                                    <input type="password" id="current-password" name="current_password" />
+                                    <p class="form-help">修改或移除密码前需要验证当前密码</p>
                                 </div>
                                 <div id="new-password-container" class="form-group hidden">
                                     <label for="new-password">新密码：</label>
@@ -317,6 +322,28 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                         <div class="modal-footer">
                             <button class="btn secondary" id="cancel-download">取消</button>
                             <button class="btn primary" id="confirm-download">下载</button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Preview Password Modal */}
+                <div id="preview-password-modal" class="modal hidden">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>密码验证</h3>
+                            <span class="close-modal">&times;</span>
+                        </div>
+                        <div class="modal-body">
+                            <p>此笔记受密码保护,请输入密码以切换到编辑模式:</p>
+                            <div class="form-group">
+                                <label for="preview-password">密码:</label>
+                                <input type="password" id="preview-password" class="full-width" placeholder="请输入密码" />
+                                <p class="error-message hidden" id="preview-password-error">密码错误</p>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn secondary" id="cancel-preview-password">取消</button>
+                            <button class="btn primary" id="confirm-preview-password">确认</button>
                         </div>
                     </div>
                 </div>
