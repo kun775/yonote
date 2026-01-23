@@ -1,11 +1,84 @@
 let lastSaveTime = window.noteUpdatedAt;
+
+// 生成唯一的标题 ID
+function generateHeadingId(text, index) {
+    // 移除特殊字符，转换为小写，替换空格为连字符
+    const id = text
+        .toLowerCase()
+        .replace(/[^\w\s\u4e00-\u9fa5-]/g, '')
+        .replace(/\s+/g, '-')
+        .substring(0, 50); // 限制长度
+    return id ? `${id}-${index}` : `heading-${index}`;
+}
+
+// 提取标题并生成目录
+function extractTOC(tokens) {
+    const headings = [];
+    let headingIndex = 0;
+
+    tokens.forEach((token, idx) => {
+        if (token.type === 'heading') {
+            const id = generateHeadingId(token.text, headingIndex++);
+            token.id = id; // 为标题添加 ID
+            headings.push({
+                level: token.depth,
+                text: token.text,
+                id: id
+            });
+        }
+    });
+
+    return headings;
+}
+
+// 生成目录 HTML
+function generateTOCHtml(headings) {
+    if (headings.length === 0) return '';
+
+    let html = '<div class="toc-container"><div class="toc-title">目录</div><nav class="toc">';
+    let currentLevel = 0;
+
+    headings.forEach((heading, index) => {
+        const level = heading.level;
+
+        // 处理层级变化
+        if (level > currentLevel) {
+            // 深入层级
+            for (let i = currentLevel; i < level; i++) {
+                html += '<ul>';
+            }
+        } else if (level < currentLevel) {
+            // 回退层级
+            for (let i = level; i < currentLevel; i++) {
+                html += '</ul>';
+            }
+        }
+
+        currentLevel = level;
+
+        // 添加目录项
+        html += `<li><a href="#${heading.id}" class="toc-link toc-level-${level}">${heading.text}</a></li>`;
+    });
+
+    // 关闭所有未关闭的 ul
+    for (let i = 0; i < currentLevel; i++) {
+        html += '</ul>';
+    }
+
+    html += '</nav></div>';
+    return html;
+}
+
 // 转换函数：将内容转换为HTML，保留非Markdown内容
 function convertToHtml(content) {
     if (!content) return '';
-    
+
     try {
         // 使用marked库解析Markdown
         if (typeof marked !== 'undefined') {
+            // 检查是否包含 [TOC] 标记
+            const hasTOC = /^\[TOC\]\s*$/m.test(content);
+
             // 配置marked选项
             marked.setOptions({
                 breaks: true,        // 将换行符转换为<br>
@@ -14,8 +87,36 @@ function convertToHtml(content) {
                 smartLists: true,    // 使用更智能的列表行为
                 xhtml: false         // 不使用自闭合标签
             });
-            
-            return marked(content);
+
+            // 使用自定义渲染器为标题添加 ID
+            const renderer = new marked.Renderer();
+            let headingIndex = 0;
+
+            renderer.heading = function(text, level, raw) {
+                const id = generateHeadingId(text, headingIndex++);
+                return `<h${level} id="${id}">${text}</h${level}>\n`;
+            };
+
+            marked.setOptions({ renderer: renderer });
+
+            // 如果有 TOC，先提取标题生成目录
+            if (hasTOC) {
+                // 解析 tokens
+                const tokens = marked.lexer(content);
+                const headings = extractTOC(tokens);
+                const tocHtml = generateTOCHtml(headings);
+
+                // 渲染完整内容
+                headingIndex = 0; // 重置索引
+                let html = marked.parser(tokens);
+
+                // 替换 [TOC] 为目录 HTML
+                html = html.replace(/<p>\[TOC\]<\/p>/g, tocHtml);
+
+                return html;
+            } else {
+                return marked(content);
+            }
         } else {
             // 如果marked未定义，使用简单的文本处理
             return simpleTextToHtml(content);
@@ -182,4 +283,201 @@ function autoSave() {
             errorIndicator.remove();
         }, 2000);
     });
+}
+// ==================== 漂浮目录功能 ====================
+
+function initFloatingTOC() {
+    // 只在 PC 端启用
+    if (!isPC()) return;
+
+    // 检查是否存在标题
+    const checkAndCreateFloatingTOC = () => {
+        const preview = document.getElementById('preview');
+        if (!preview) return;
+
+        const headings = preview.querySelectorAll('h1, h2, h3, h4, h5, h6');
+        
+        if (headings.length > 0) {
+            document.body.classList.add('has-headings');
+            createFloatingTOC(headings);
+        } else {
+            document.body.classList.remove('has-headings');
+            removeFloatingTOC();
+        }
+    };
+
+    // 创建漂浮目录
+    const createFloatingTOC = (headings) => {
+        // 移除旧的漂浮目录
+        removeFloatingTOC();
+
+        // 创建漂浮目录容器
+        const floatingTOC = document.createElement('div');
+        floatingTOC.className = 'floating-toc show';
+        floatingTOC.id = 'floating-toc';
+
+        // 创建标题栏
+        const header = document.createElement('div');
+        header.className = 'floating-toc-header';
+        header.innerHTML = `
+            <div class="floating-toc-title">📑 目录</div>
+            <div class="floating-toc-toggle">📖</div>
+            <button class="toc-close-btn" title="收起目录">✕</button>
+        `;
+
+        // 创建内容区域
+        const content = document.createElement('div');
+        content.className = 'floating-toc-content';
+
+        // 生成目录列表
+        const nav = document.createElement('nav');
+        nav.className = 'toc';
+
+        let html = '';
+        let currentLevel = 0;
+
+        headings.forEach((heading, index) => {
+            const level = parseInt(heading.tagName.substring(1));
+            const text = heading.textContent;
+            const id = heading.id;
+
+            // 处理层级变化
+            if (level > currentLevel) {
+                for (let i = currentLevel; i < level; i++) {
+                    html += '<ul>';
+                }
+            } else if (level < currentLevel) {
+                for (let i = level; i < currentLevel; i++) {
+                    html += '</ul>';
+                }
+            }
+
+            currentLevel = level;
+            html += `<li><a href="#${id}" class="toc-link toc-level-${level}" data-heading-id="${id}">${text}</a></li>`;
+        });
+
+        // 关闭所有未关闭的 ul
+        for (let i = 0; i < currentLevel; i++) {
+            html += '</ul>';
+        }
+
+        nav.innerHTML = html;
+        content.appendChild(nav);
+
+        floatingTOC.appendChild(header);
+        floatingTOC.appendChild(content);
+        document.body.appendChild(floatingTOC);
+
+        // 获取关闭按钮和切换按钮
+        const closeBtn = floatingTOC.querySelector('.toc-close-btn');
+        const toggleBtn = floatingTOC.querySelector('.floating-toc-toggle');
+
+        // 关闭按钮点击事件（收起目录）
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // 阻止事件冒泡到 header
+            floatingTOC.classList.add('collapsed');
+        });
+
+        // 切换按钮点击事件（展开目录）
+        toggleBtn.addEventListener('click', (e) => {
+            if (floatingTOC.classList.contains('collapsed')) {
+                e.stopPropagation();
+                floatingTOC.classList.remove('collapsed');
+            }
+        });
+
+        // 标题栏点击事件（仅在收起状态时展开）
+        header.addEventListener('click', () => {
+            if (floatingTOC.classList.contains('collapsed')) {
+                floatingTOC.classList.remove('collapsed');
+            }
+        });
+
+        // 添加目录链接点击事件（平滑滚动）
+        const tocLinks = floatingTOC.querySelectorAll('.toc-link');
+        tocLinks.forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetId = link.getAttribute('href').substring(1);
+                const targetElement = document.getElementById(targetId);
+                
+                if (targetElement) {
+                    // 高亮当前激活的目录项
+                    tocLinks.forEach(l => l.classList.remove('active'));
+                    link.classList.add('active');
+
+                    // 平滑滚动到目标位置
+                    targetElement.scrollIntoView({ 
+                        behavior: 'smooth', 
+                        block: 'start' 
+                    });
+                }
+            });
+        });
+
+        // 滚动监听，自动高亮当前章节
+        let ticking = false;
+        const onScroll = () => {
+            if (!ticking) {
+                window.requestAnimationFrame(() => {
+                    updateActiveTOCLink(headings, tocLinks);
+                    ticking = false;
+                });
+                ticking = true;
+            }
+        };
+
+        window.addEventListener('scroll', onScroll);
+    };
+
+    // 更新激活的目录链接
+    const updateActiveTOCLink = (headings, tocLinks) => {
+        const scrollPos = window.scrollY + 100;
+        
+        let activeIndex = -1;
+        headings.forEach((heading, index) => {
+            if (heading.offsetTop <= scrollPos) {
+                activeIndex = index;
+            }
+        });
+
+        tocLinks.forEach((link, index) => {
+            if (index === activeIndex) {
+                link.classList.add('active');
+            } else {
+                link.classList.remove('active');
+            }
+        });
+    };
+
+    // 移除漂浮目录
+    const removeFloatingTOC = () => {
+        const existing = document.getElementById('floating-toc');
+        if (existing) {
+            existing.remove();
+        }
+    };
+
+    // 初始化
+    checkAndCreateFloatingTOC();
+
+    // 监听预览内容变化
+    const preview = document.getElementById('preview');
+    if (preview) {
+        const observer = new MutationObserver(() => {
+            checkAndCreateFloatingTOC();
+        });
+
+        observer.observe(preview, {
+            childList: true,
+            subtree: true
+        });
+    }
+}
+
+// 页面加载完成后初始化漂浮目录
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initFloatingTOC);
+} else {
+    initFloatingTOC();
 }

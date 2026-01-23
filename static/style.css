@@ -1599,3 +1599,261 @@ textarea.preview-mode {
 .editor.preview-active textarea {
     border-radius: 8px;
 }
+/* ==================== 目录样式 ==================== */
+
+/* 内联目录容器 */
+.toc-container {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px 20px;
+    margin: 20px 0;
+    max-width: 100%;
+}
+
+.toc-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #007bff;
+}
+
+.toc ul {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.toc ul ul {
+    padding-left: 20px;
+    margin-top: 4px;
+}
+
+.toc li {
+    margin: 4px 0;
+}
+
+.toc-link {
+    color: #495057;
+    text-decoration: none;
+    display: block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    font-size: 14px;
+}
+
+.toc-link:hover {
+    background: #e9ecef;
+    color: #007bff;
+    padding-left: 12px;
+}
+
+.toc-link.active {
+    background: #007bff;
+    color: white;
+    font-weight: 500;
+}
+
+/* 不同层级的目录样式 */
+.toc-level-1 {
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.toc-level-2 {
+    font-size: 14px;
+}
+
+.toc-level-3 {
+    font-size: 13px;
+    color: #6c757d;
+}
+
+.toc-level-4,
+.toc-level-5,
+.toc-level-6 {
+    font-size: 12px;
+    color: #6c757d;
+}
+
+/* 漂浮目录面板（仅PC端） */
+.floating-toc {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 300px;
+    max-height: calc(100vh - 60px);
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+    z-index: 900;
+    display: none;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.floating-toc.show {
+    display: block;
+    animation: slideInRight 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 收起状态 - 只显示一个圆形按钮 */
+.floating-toc.collapsed {
+    width: 56px;
+    height: 56px;
+    border-radius: 28px;
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+    overflow: visible;
+}
+
+/* 收起状态下隐藏内容 */
+.floating-toc.collapsed .floating-toc-content,
+.floating-toc.collapsed .floating-toc-title,
+.floating-toc.collapsed .toc-close-btn {
+    display: none;
+}
+
+/* 收起状态下的按钮样式 */
+.floating-toc.collapsed .floating-toc-header {
+    width: 56px;
+    height: 56px;
+    border-radius: 28px;
+    padding: 0;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+}
+
+.floating-toc.collapsed .floating-toc-toggle {
+    transform: rotate(0deg);
+    font-size: 24px;
+}
+
+/* 标题栏 */
+.floating-toc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+}
+
+.floating-toc-title {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+/* 展开/收起切换按钮 */
+.floating-toc-toggle {
+    font-size: 20px;
+    transition: transform 0.3s;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 关闭按钮（展开状态右上角） */
+.toc-close-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    z-index: 10;
+}
+
+.toc-close-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.1);
+}
+
+.toc-close-btn:active {
+    transform: scale(0.95);
+}
+
+/* 内容区域 */
+.floating-toc-content {
+    padding: 20px;
+    overflow-y: auto;
+    max-height: calc(100vh - 140px);
+}
+
+.floating-toc-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.floating-toc-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.floating-toc-content::-webkit-scrollbar-thumb {
+    background: #cbd5e0;
+    border-radius: 3px;
+}
+
+.floating-toc-content::-webkit-scrollbar-thumb:hover {
+    background: #a0aec0;
+}
+
+/* 漂浮目录内的链接样式 */
+.floating-toc .toc-link {
+    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: 6px;
+}
+
+.floating-toc .toc-link:hover {
+    background: #f7fafc;
+    padding-left: 16px;
+}
+
+.floating-toc .toc-link.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-weight: 500;
+}
+
+/* 滑入动画 */
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* 移动端隐藏漂浮目录 */
+@media screen and (max-width: 768px) {
+    .floating-toc {
+        display: none !important;
+    }
+}
+
+/* PC 端且文档有标题时才显示漂浮目录 */
+@media screen and (min-width: 769px) {
+    body.has-headings .floating-toc {
+        display: block;
+    }
+}
