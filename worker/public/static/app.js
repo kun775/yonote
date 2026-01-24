@@ -646,45 +646,56 @@ document.addEventListener('DOMContentLoaded', (event) => {
         }
 
         isPreviewMode = !isPreviewMode;
-        const editorContainerEl = document.querySelector('.editor-container');
 
         if (isPreviewMode) {
-            // 进入预览模式
-            editorContainerEl.classList.add('preview-mode');
+            if (!isPC()) {
+                editor.classList.add('hidden');
+                previewDiv.classList.remove('hidden');
+            } else {
+                // PC模式下为容器添加preview-mode类
+                document.querySelector('.editor-container').classList.add('preview-mode');
+            }
             editor.setAttribute('readonly', 'readonly');
             editor.classList.add('preview-mode');
-            editorContainer1.classList.add('preview-active');
+            editorContainer1.classList.add('preview-active'); // 添加水印类
             previewButton.innerHTML = '<i class="fas fa-edit"></i> 编辑';
-            // 更新预览内容
-            updatePreview(editor.value);
         } else {
-            // 进入编辑模式
-            editorContainerEl.classList.remove('preview-mode');
+            if (!isPC()) {
+                editor.classList.remove('hidden');
+                previewDiv.classList.add('hidden');
+            } else {
+                // PC模式下移除容器的preview-mode类
+                document.querySelector('.editor-container').classList.remove('preview-mode');
+            }
             editor.removeAttribute('readonly');
             editor.classList.remove('preview-mode');
-            editorContainer1.classList.remove('preview-active');
+            editorContainer1.classList.remove('preview-active'); // 移除水印类
             previewButton.innerHTML = '<i class="fas fa-eye"></i> 预览';
         }
+
+        // 更新预览内容
+        updatePreview(editor.value);
     };
 
     // 初始化状态
     if (isViewOnly) {
         editor.setAttribute('readonly', 'readonly');
         editor.classList.add('preview-mode');
-        document.querySelector('.editor-container').classList.add('preview-mode');
-        editorContainer1.classList.add('preview-active');
-        if (previewButton) {
-            previewButton.style.display = 'none'; // 只读模式下隐藏预览按钮
-        }
-        // 初始渲染预览
-        updatePreview(editor.value);
-    } else {
-        // 编辑模式：移动端默认不显示预览
         if (!isPC()) {
-            // 移动端编辑模式：初始不渲染预览，节省性能
+            editor.classList.add('hidden');
+            previewDiv.classList.remove('hidden');
         } else {
-            // PC端：初始渲染预览
-            updatePreview(editor.value);
+            // PC模式下为容器添加preview-mode类
+            document.querySelector('.editor-container').classList.add('preview-mode');
+        }
+        editorContainer1.classList.add('preview-active'); // 只读模式下也显示水印
+        if (previewButton) {
+            previewButton.style.display = 'none'; // 只读模式下隐藏按钮
+        }
+    } else {
+        if (!isPC()) {
+            editor.classList.remove('hidden');
+            previewDiv.classList.add('hidden');
         }
     }
 
