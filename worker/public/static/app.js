@@ -112,21 +112,21 @@ document.addEventListener('DOMContentLoaded', (event) => {
     const securityInfoBtn = document.getElementById('security-info-btn');
     const securityModal = document.getElementById('security-modal');
     const closeSecurityModal = document.getElementById('close-security-modal');
-    const closeModalBtn = document.querySelector('.close-modal');
+    const closeModalBtn = securityModal ? securityModal.querySelector('.close-modal') : null;
 
-    if (securityInfoBtn) {
+    if (securityInfoBtn && securityModal) {
         securityInfoBtn.addEventListener('click', function() {
             securityModal.classList.remove('hidden');
         });
     }
 
-    if (closeSecurityModal) {
+    if (closeSecurityModal && securityModal) {
         closeSecurityModal.addEventListener('click', function() {
             securityModal.classList.add('hidden');
         });
     }
 
-    if (closeModalBtn) {
+    if (closeModalBtn && securityModal) {
         closeModalBtn.addEventListener('click', function() {
             securityModal.classList.add('hidden');
         });
@@ -141,59 +141,151 @@ document.addEventListener('DOMContentLoaded', (event) => {
     const cancelDownloadBtn = document.getElementById('cancel-download');
     const confirmDownloadBtn = document.getElementById('confirm-download');
     const closeDownloadModalBtn = downloadPasswordModal ? downloadPasswordModal.querySelector('.close-modal') : null;
+    const downloadPasswordGroup = document.getElementById('download-password-group');
+    const downloadFormatTxt = document.getElementById('download-format-txt');
+    const downloadFormatPdf = document.getElementById('download-format-pdf');
+
+    const getSelectedDownloadFormat = () => {
+        const selected = document.querySelector('input[name="download-format"]:checked');
+        return selected ? selected.value : 'txt';
+    };
+
+    const requiresDownloadPassword = () => Boolean(window.password && !window.authenticated);
+
+    const showDownloadError = (message) => {
+        const text = message || '密码错误';
+        const canShowInline = downloadPasswordError
+            && !(downloadPasswordGroup && downloadPasswordGroup.classList.contains('hidden'));
+
+        if (canShowInline) {
+            downloadPasswordError.textContent = text;
+            downloadPasswordError.classList.remove('hidden');
+            return;
+        }
+
+        const notification = document.createElement('div');
+        notification.className = 'save-indicator error';
+        notification.textContent = text;
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 2200);
+    };
+
+    const openDownloadModal = () => {
+        if (!downloadPasswordModal) return;
+
+        const needPassword = requiresDownloadPassword();
+        downloadPasswordModal.classList.remove('hidden');
+
+        if (downloadFormatTxt) {
+            downloadFormatTxt.checked = true;
+        }
+        if (downloadFormatPdf) {
+            downloadFormatPdf.checked = false;
+        }
+
+        if (downloadPasswordGroup) {
+            downloadPasswordGroup.classList.toggle('hidden', !needPassword);
+        }
+        if (downloadPasswordInput) {
+            downloadPasswordInput.value = '';
+            downloadPasswordInput.required = needPassword;
+        }
+        if (downloadPasswordError) {
+            downloadPasswordError.classList.add('hidden');
+            downloadPasswordError.textContent = '密码错误';
+        }
+    };
+
+    const closeDownloadModal = () => {
+        if (downloadPasswordModal) {
+            downloadPasswordModal.classList.add('hidden');
+        }
+    };
 
     if (cancelDownloadBtn) {
         cancelDownloadBtn.addEventListener('click', function() {
-            downloadPasswordModal.classList.add('hidden');
+            closeDownloadModal();
         });
     }
 
     if (closeDownloadModalBtn) {
         closeDownloadModalBtn.addEventListener('click', function() {
-            downloadPasswordModal.classList.add('hidden');
+            closeDownloadModal();
         });
     }
 
     if (confirmDownloadBtn) {
         confirmDownloadBtn.addEventListener('click', function() {
-            if (window.password){
-                // 如果有密码保护，验证密码
-                const password = downloadPasswordInput ? downloadPasswordInput.value : '';
+            (async () => {
+                const noteContent = contentInput ? contentInput.value : '';
+                if (!noteContent.trim()) {
+                    const notification = document.createElement('div');
+                    notification.className = 'save-indicator';
+                    notification.textContent = '笔记内容为空，无法下载';
+                    document.body.appendChild(notification);
+                    setTimeout(() => notification.remove(), 2000);
+                    return;
+                }
 
-                fetch(`/${noteKey}/verify-download`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ password: password }),
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // 密码正确，执行下载
-                        downloadNote();
-                        downloadPasswordModal.classList.add('hidden');
+                const format = getSelectedDownloadFormat();
+                const needPassword = requiresDownloadPassword();
+
+                if (needPassword) {
+                    const password = downloadPasswordInput ? downloadPasswordInput.value : '';
+                    if (!password.trim()) {
+                        showDownloadError('请输入密码');
+                        return;
                     }
-                    else{
-                        // 密码错误，显示错误信息
-                        if (downloadPasswordError) {
-                            downloadPasswordError.classList.remove('hidden');
-                        }
-                    }   
-                });
-            }
-            else{
-                // 无密码保护，直接下载
-                downloadNote();
-                downloadPasswordModal.classList.add('hidden');
-            }
+                    const response = await fetch(`/${noteKey}/verify-download`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ password: password }),
+                    });
+                    const data = await response.json();
+
+                    if (!data.success) {
+                        showDownloadError(data.message || '密码错误');
+                        return;
+                    }
+
+                    window.authenticated = true;
+                    closeDownloadModal();
+                    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+
+                    await downloadNote({
+                        format,
+                        content: noteContent
+                    });
+                } else {
+                    closeDownloadModal();
+                    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+
+                    await downloadNote({
+                        format,
+                        content: noteContent
+                    });
+                }
+            })().catch((error) => {
+                console.error('download error:', error);
+                if (error && error.message === 'PDF_LIB_MISSING') {
+                    showDownloadError('PDF 功能加载失败，请稍后重试');
+                    return;
+                }
+                const notification = document.createElement('div');
+                notification.className = 'save-indicator error';
+                notification.textContent = '下载失败，请稍后重试';
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 2200);
+            });
         });
     }
 
     if (downloadBtn) {
         downloadBtn.addEventListener('click', function() {
-            const noteContent = contentInput.value.trim()
-            
+            const noteContent = contentInput ? contentInput.value.trim() : '';
+             
             if (!noteContent) {
                 // 内容为空，显示提示
                 const notification = document.createElement('div');
@@ -206,25 +298,14 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 }, 2000);
                 return;
             }
-            
-            // {% if note['password'] and not note['public'] and not authenticated %}
-            // 如果笔记有密码保护，并且不是公开的，并且没有认证
-            // if (window.password && !window.public && !window.authenticated) {
-            if (window.password && !window.public) {
-                // 需要密码验证
-                if (downloadPasswordModal) {
-                    downloadPasswordModal.classList.remove('hidden');
-                    if (downloadPasswordInput) {
-                        downloadPasswordInput.value = '';
-                    }
-                    if (downloadPasswordError) {
-                        downloadPasswordError.classList.add('hidden');
-                    }
-                }
+
+            if (downloadPasswordModal) {
+                openDownloadModal();
             } else {
-                // 直接下载
-                downloadNote();
-                downloadPasswordModal.classList.add('hidden');
+                downloadNote({
+                    format: 'txt',
+                    content: noteContent
+                }).catch((error) => console.error('download fallback error:', error));
             }
         });
     }
@@ -244,13 +325,13 @@ document.addEventListener('DOMContentLoaded', (event) => {
         });
     }
 
-    if (settingsBtn) {
+    if (settingsBtn && settingsPanel) {
         settingsBtn.addEventListener('click', function() {
             settingsPanel.classList.remove('hidden');
         });
     }
 
-    if (closeSettings) {
+    if (closeSettings && settingsPanel) {
         closeSettings.addEventListener('click', function() {
             settingsPanel.classList.add('hidden');
         });
@@ -307,6 +388,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
     const settingsForm = document.getElementById('settings-form');
     if (settingsForm) {
         settingsForm.addEventListener('submit', function(event) {
+            if (!settingsContentInput) return;
             const content = settingsContentInput.value.trim();
             if (!content) {
                 event.preventDefault();
@@ -322,14 +404,45 @@ document.addEventListener('DOMContentLoaded', (event) => {
         });
     }
 
-    document.querySelectorAll('pre code').forEach((el) => {
-        hljs.highlightElement(el);
-    });
+    if (typeof hljs !== 'undefined' && typeof hljs.highlightElement === 'function') {
+        document.querySelectorAll('pre code').forEach((el) => {
+            hljs.highlightElement(el);
+        });
+    }
 
     // 获取所有模态框和关闭按钮
     const modals = document.querySelectorAll('.modal');
     const closeButtons = document.querySelectorAll('.close-modal');
     const cancelButtons = document.querySelectorAll('[id$="-cancel"], [id^="cancel-"]');
+    const settingsPanelForLock = document.getElementById('settings-panel');
+    const helpModalForLock = document.getElementById('helpModal');
+
+    // 统一弹窗锁：任意弹窗/设置面板打开时，屏蔽背景区域交互
+    const refreshPopupLock = () => {
+        const anyModalOpen = Array.from(modals).some((modal) => !modal.classList.contains('hidden'));
+        const settingsOpen = settingsPanelForLock && !settingsPanelForLock.classList.contains('hidden');
+        const helpOpen = helpModalForLock && window.getComputedStyle(helpModalForLock).display !== 'none';
+        const locked = anyModalOpen || settingsOpen || helpOpen;
+
+        document.body.classList.toggle('popup-active', locked);
+        document.body.classList.toggle('modal-open', locked);
+    };
+
+    const lockTargets = Array.from(modals);
+    if (settingsPanelForLock) lockTargets.push(settingsPanelForLock);
+    if (helpModalForLock) lockTargets.push(helpModalForLock);
+
+    if (lockTargets.length > 0) {
+        const lockObserver = new MutationObserver(() => refreshPopupLock());
+        lockTargets.forEach((target) => {
+            lockObserver.observe(target, {
+                attributes: true,
+                attributeFilter: ['class', 'style']
+            });
+        });
+    }
+
+    refreshPopupLock();
 
     // 为所有关闭按钮添加事件监听器
     closeButtons.forEach(button => {
@@ -415,15 +528,25 @@ document.addEventListener('DOMContentLoaded', (event) => {
         }
 
         try {
-            // 配置 marked 选项
-            marked.setOptions({
-                breaks: true,
-                gfm: true,
-                smartLists: true
-            });
+            let html = '';
+            if (typeof convertToHtml === 'function') {
+                html = convertToHtml(content);
+            } else {
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true,
+                    smartLists: true
+                });
+                html = marked.parse(content);
+            }
 
-            // 使用 marked 在前端渲染 Markdown
-            const html = marked.parse(content);
+            if (typeof DOMPurify !== 'undefined') {
+                html = DOMPurify.sanitize(html, {
+                    ADD_TAGS: ['section', 'input', 'label', 'sup', 'sub', 'mark'],
+                    ADD_ATTR: ['checked', 'disabled', 'type', 'id', 'class']
+                });
+            }
+            
             previewDiv.innerHTML = html;
 
             // 渲染数学公式
@@ -432,8 +555,11 @@ document.addEventListener('DOMContentLoaded', (event) => {
             }
 
             // 应用代码高亮并添加复制按钮
+            const canHighlight = typeof hljs !== 'undefined' && typeof hljs.highlightElement === 'function';
             previewDiv.querySelectorAll('pre code').forEach((block) => {
-                hljs.highlightElement(block);
+                if (canHighlight) {
+                    hljs.highlightElement(block);
+                }
                 addCopyButton(block.parentElement);
             });
 
@@ -501,7 +627,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
         mermaid.initialize({
             startOnLoad: false,
             theme: 'default',
-            securityLevel: 'loose'
+            securityLevel: 'strict'
         });
 
         // 查找 mermaid 代码块
@@ -557,6 +683,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
     // 验证密码
     const verifyPassword = async (password) => {
         try {
+            if (!noteKey) return false;
             const response = await fetch(`/${noteKey}/verify`, {
                 method: 'POST',
                 headers: {
@@ -565,9 +692,13 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 body: new URLSearchParams({
                     'password': password,
                     'next_url': `/${noteKey}`
-                })
+                }),
+                credentials: 'same-origin'
             });
-            return response.ok;
+
+            if (!response.redirected) return false;
+            const finalPath = new URL(response.url).pathname;
+            return finalPath === `/${noteKey}`;
         } catch (error) {
             console.error('Error:', error);
             return false;
@@ -575,18 +706,29 @@ document.addEventListener('DOMContentLoaded', (event) => {
     };
 
     // 创建 Promise 化的密码输入函数
-    const showPasswordModal = () => {
+    const showPasswordModal = (options = {}) => {
+        const { showError = false, errorText = '密码错误' } = options;
         return new Promise((resolve) => {
             const modal = document.getElementById('preview-password-modal');
             const passwordInput = document.getElementById('preview-password');
             const errorMsg = document.getElementById('preview-password-error');
             const confirmBtn = document.getElementById('confirm-preview-password');
             const cancelBtn = document.getElementById('cancel-preview-password');
-            const closeBtn = modal.querySelector('.close-modal');
+            const closeBtn = modal ? modal.querySelector('.close-modal') : null;
+
+            if (!modal || !passwordInput || !errorMsg || !confirmBtn || !cancelBtn || !closeBtn) {
+                resolve(null);
+                return;
+            }
 
             // 重置状态
             passwordInput.value = '';
-            errorMsg.classList.add('hidden');
+            if (showError) {
+                errorMsg.textContent = errorText;
+                errorMsg.classList.remove('hidden');
+            } else {
+                errorMsg.classList.add('hidden');
+            }
             modal.classList.remove('hidden');
             passwordInput.focus();
 
@@ -626,23 +768,33 @@ document.addEventListener('DOMContentLoaded', (event) => {
         });
     };
 
+    const ensurePasswordVerified = async (hasPassword) => {
+        if (!hasPassword || window.authenticated) return true;
+
+        let showError = false;
+        while (true) {
+            const password = await showPasswordModal({ showError });
+            if (!password) return false;
+
+            const verified = await verifyPassword(password);
+            if (verified) {
+                window.authenticated = true;
+                return true;
+            }
+
+            showError = true;
+        }
+    };
+
     // 切换预览模式
     const togglePreviewMode = async () => {
+        if (!previewButton) return;
         // 如果当前是预览模式，需要切换到编辑模式时验证密码
-        if (isPreviewMode) {
+        // 只有在未认证的情况下才需要验证密码
+        if (isPreviewMode && !window.authenticated) {
             const hasPassword = previewButton.dataset.hasPassword === 'true';
-            if (hasPassword) {
-                const password = await showPasswordModal();
-                if (!password) return;
-
-                const verified = await verifyPassword(password);
-                if (!verified) {
-                    const errorMsg = document.getElementById('preview-password-error');
-                    errorMsg.classList.remove('hidden');
-                    setTimeout(() => errorMsg.classList.add('hidden'), 3000);
-                    return;
-                }
-            }
+            const allowed = await ensurePasswordVerified(hasPassword);
+            if (!allowed) return;
         }
 
         isPreviewMode = !isPreviewMode;
@@ -701,21 +853,41 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
     // 监听预览按钮点击事件
     if (previewButton) {
-        previewButton.addEventListener('click', togglePreviewMode);
+        previewButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            togglePreviewMode().catch((err) => console.error('togglePreviewMode error:', err));
+        });
+    }
+
+    // 监听编辑按钮点击事件 (view_only 模式)
+    const editBtn = document.getElementById('edit-btn');
+    if (editBtn) {
+        editBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            (async () => {
+                // view=1 页面点击“编辑”：需要则验证密码，然后跳转到编辑页（去掉 ?view=1）
+                const hasPassword = editBtn.dataset.hasPassword === 'true';
+                const allowed = await ensurePasswordVerified(hasPassword);
+                if (!allowed) return;
+
+                if (noteKey) {
+                    window.location.href = `/${noteKey}`;
+                }
+            })().catch((err) => console.error('edit click error:', err));
+        });
     }
 
     // 监听输入事件
     if (editor) {
         editor.addEventListener('input', function() {
-            // PC端且非预览模式时实时更新预览
-            if (isPC() && !isPreviewMode) {
+            // 实时更新预览 (已带 300ms 防抖)
+            if (!isPreviewMode) {
                 updatePreview(this.value);
             }
-            // 移动端不实时预览，节省性能
         });
 
-        // 初始加载时执行一次预览（仅 PC 端或只读模式）
-        if (editor.value && (isPC() || isViewOnly)) {
+        // 初始加载时执行一次预览
+        if (editor.value) {
             updatePreview(editor.value);
         }
     }
@@ -755,20 +927,24 @@ document.addEventListener('DOMContentLoaded', (event) => {
         }
     });
 
-    renderMathInElement(document.body, {
-        delimiters: [
-            {left: '$$', right: '$$', display: true},
-            {left: '$', right: '$', display: false},
-            {left: '\\[', right: '\\]', display: true},
-            {left: '\\(', right: '\\)', display: false}
-        ],
-        throwOnError: false
-    });
+    if (typeof renderMathInElement === 'function') {
+        renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\[', right: '\\]', display: true},
+                {left: '\\(', right: '\\)', display: false}
+            ],
+            throwOnError: false
+        });
+    }
     
     // 初始化代码高亮
-    document.querySelectorAll('pre code').forEach((block) => {
-        hljs.highlightElement(block);
-    });
+    if (typeof hljs !== 'undefined' && typeof hljs.highlightElement === 'function') {
+        document.querySelectorAll('pre code').forEach((block) => {
+            hljs.highlightElement(block);
+        });
+    }
 
     // 删除笔记功能
     const deleteNoteBtn = document.getElementById('delete-note-btn');
@@ -778,6 +954,24 @@ document.addEventListener('DOMContentLoaded', (event) => {
     const deletePasswordInput = document.getElementById('delete-password');
     const deletePasswordError = document.getElementById('delete-password-error');
     const closeDeleteModalBtn = deleteModal ? deleteModal.querySelector('.close-modal') : null;
+
+    const performDeleteNote = async () => {
+        const response = await fetch(`/${noteKey}/delete`, {
+            method: 'POST',
+            credentials: 'same-origin'
+        });
+
+        if (response.redirected) {
+            window.location.href = response.url;
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error('删除失败');
+        }
+
+        window.location.href = '/';
+    };
 
     if (deleteNoteBtn) {
         deleteNoteBtn.addEventListener('click', function(e) {
@@ -822,11 +1016,12 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        // 密码正确，执行删除
-                        window.location.href = `/${noteKey}/delete`;
+                        window.authenticated = true;
+                        return performDeleteNote();
                     } else {
                         // 密码错误，显示错误信息
                         if (deletePasswordError) {
+                            deletePasswordError.textContent = data.message || '密码错误';
                             deletePasswordError.classList.remove('hidden');
                         }
                     }
@@ -835,8 +1030,9 @@ document.addEventListener('DOMContentLoaded', (event) => {
                     console.error('Error:', error);
                 });
             } else {
-                // 无密码保护，直接删除
-                window.location.href = `/${noteKey}/delete`;
+                performDeleteNote().catch(error => {
+                    console.error('Error:', error);
+                });
             }
         });
     }
@@ -901,7 +1097,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
     if (copyContentBtn) {
         copyContentBtn.addEventListener('click', function() {
-            const content = window.viewOnly ? document.querySelector('.content-display').innerText : contentInput.value
+            const content = contentInput ? contentInput.value : (editor ? editor.value : '');
             
             // 创建临时textarea元素
             const textarea = document.createElement('textarea');

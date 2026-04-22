@@ -90,9 +90,9 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                             </button>
 
                             {viewOnly && (
-                                <a href={`/${note.key}`} class="btn small">
+                                <button id="edit-btn" class="btn small" data-has-password={note.password ? 'true' : 'false'}>
                                     <i class="fas fa-edit"></i> 编辑
-                                </a>
+                                </button>
                             )}
 
                             {(!viewOnly || authenticated) && (
@@ -123,7 +123,7 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                     <div id="settings-panel" class="settings-panel hidden">
                         <div class="settings-header">
                             <h3>笔记设置</h3>
-                            <span class="close-settings">&times;</span>
+                            <button type="button" class="close-settings modal-close-btn" aria-label="关闭设置面板">&times;</button>
                         </div>
 
                         <form id="settings-form" method="post" action={`/${note.key}/update`}>
@@ -219,7 +219,7 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                                     <i class="fab fa-github"></i> Github
                                 </a>
                             </h5>
-                            <span class="custom-modal-close">&times;</span>
+                            <button type="button" class="custom-modal-close modal-close-btn" aria-label="关闭帮助弹窗">&times;</button>
                         </div>
                         <div class="custom-modal-body">
                             <div class="help-section">
@@ -257,7 +257,7 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                     <div class="modal-content">
                         <div class="modal-header">
                             <h3>确认删除</h3>
-                            <span class="close-modal">&times;</span>
+                            <button type="button" class="close-modal modal-close-btn" aria-label="关闭弹窗">&times;</button>
                         </div>
                         <div class="modal-body">
                             <p><span class="warning-text"><strong>警告：</strong>您即将删除此笔记，此操作不可撤销。</span></p>
@@ -282,14 +282,14 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                     <div class="modal-content">
                         <div class="modal-header">
                             <h3>分享选项</h3>
-                            <span class="close-modal">&times;</span>
+                            <button type="button" class="close-modal modal-close-btn" aria-label="关闭弹窗">&times;</button>
                         </div>
                         <div class="modal-body">
                             <div class="share-option">
                                 <h4>复制笔记链接</h4>
                                 <div class="share-link-container">
                                     <input type="text" readonly value={shareUrl} id="share-link" />
-                                    <button id="copy-link-btn" class="btn btn-secondary">
+                                    <button id="copy-link-btn" class="btn secondary">
                                         <i class="fas fa-link"></i> 复制链接
                                     </button>
                                 </div>
@@ -308,12 +308,25 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                 <div id="download-password-modal" class="modal hidden">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <h3>密码验证</h3>
-                            <span class="close-modal">&times;</span>
+                            <h3>下载选项</h3>
+                            <button type="button" class="close-modal modal-close-btn" aria-label="关闭弹窗">&times;</button>
                         </div>
                         <div class="modal-body">
-                            <p>此笔记受密码保护，请输入密码以下载内容：</p>
                             <div class="form-group">
+                                <label>下载格式：</label>
+                                <div class="download-format-options">
+                                    <label class="radio-option" for="download-format-txt">
+                                        <input type="radio" id="download-format-txt" name="download-format" value="txt" checked />
+                                        TXT（原始 Markdown）
+                                    </label>
+                                    <label class="radio-option" for="download-format-pdf">
+                                        <input type="radio" id="download-format-pdf" name="download-format" value="pdf" />
+                                        PDF（渲染文档）
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-group" id="download-password-group">
+                                <p>此笔记受密码保护，请输入密码后下载：</p>
                                 <label for="download-password">密码：</label>
                                 <input type="password" id="download-password" class="full-width" />
                                 <p class="error-message hidden" id="download-password-error">密码错误</p>
@@ -331,7 +344,7 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                     <div class="modal-content">
                         <div class="modal-header">
                             <h3>密码验证</h3>
-                            <span class="close-modal">&times;</span>
+                            <button type="button" class="close-modal modal-close-btn" aria-label="关闭弹窗">&times;</button>
                         </div>
                         <div class="modal-body">
                             <p>此笔记受密码保护,请输入密码以切换到编辑模式:</p>

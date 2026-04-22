@@ -6,6 +6,8 @@ const PBKDF2_ITERATIONS = 100000;
 const PASSWORD_ITERATIONS = 100000;
 const PASSWORD_SALT_LENGTH = 16;
 const PASSWORD_PREFIX = 'pbkdf2$';
+const DEFAULT_KEY_LENGTH = 12;
+const KEY_CHARS = 'abcdefghijklmnopqrstuvwxyz';
 
 function base64Encode(buffer: Uint8Array): string {
     let binary = '';
@@ -92,12 +94,21 @@ async function derivePasswordBits(password: string, salt: Uint8Array, iterations
     return new Uint8Array(bits);
 }
 
+function requireSecret(secret: string, name: string): string {
+    const normalized = secret?.trim();
+    if (!normalized) {
+        throw new Error(`${name} 未配置`);
+    }
+    return normalized;
+}
+
 export async function encryptContent(content: string, encryptionKey: string): Promise<string> {
     if (!content) return '';
 
+    const normalizedKey = requireSecret(encryptionKey, 'ENCRYPTION_KEY');
     const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
     const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-    const key = await deriveKey(encryptionKey, salt);
+    const key = await deriveKey(normalizedKey, salt);
 
     const encrypted = await crypto.subtle.encrypt(
         { name: ALGORITHM, iv: iv },
@@ -117,13 +128,14 @@ export async function decryptContent(encryptedData: string, encryptionKey: strin
     if (!encryptedData) return '';
 
     try {
+        const normalizedKey = requireSecret(encryptionKey, 'ENCRYPTION_KEY');
         const combined = base64Decode(encryptedData);
 
         const salt = combined.slice(0, SALT_LENGTH);
         const iv = combined.slice(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
         const ciphertext = combined.slice(SALT_LENGTH + IV_LENGTH);
 
-        const key = await deriveKey(encryptionKey, salt);
+        const key = await deriveKey(normalizedKey, salt);
 
         const decrypted = await crypto.subtle.decrypt(
             { name: ALGORITHM, iv: iv },
@@ -134,7 +146,7 @@ export async function decryptContent(encryptedData: string, encryptionKey: strin
         return new TextDecoder().decode(decrypted);
     } catch (e) {
         console.error('Decryption error:', e);
-        return '[解密失败]';
+        throw new Error('笔记解密失败');
     }
 }
 
@@ -178,8 +190,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
     return timingSafeEqual(legacyBytes, storedBytes);
 }
 
-export function generateKey(minLength = 3, maxLength = 7): string {
-    const chars = 'abcdefghijklmnopqrstuvwxyz';
+export function generateKey(minLength = DEFAULT_KEY_LENGTH, maxLength = DEFAULT_KEY_LENGTH): string {
     const length = Math.floor(Math.random() * (maxLength - minLength + 1)) + minLength;
 
     const randomValues = new Uint8Array(length);
@@ -187,7 +198,7 @@ export function generateKey(minLength = 3, maxLength = 7): string {
 
     let key = '';
     for (let i = 0; i < length; i++) {
-        key += chars[randomValues[i] % chars.length];
+        key += KEY_CHARS[randomValues[i] % KEY_CHARS.length];
     }
     return key;
 }

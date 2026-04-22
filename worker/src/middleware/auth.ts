@@ -62,7 +62,11 @@ async function signValue(value: string, secret: string): Promise<Uint8Array> {
 }
 
 function getAuthSecret(c: Context<AppEnv>): string {
-    return c.env.ENCRYPTION_KEY || 'fallback-secret-change-this';
+    const secret = c.env.ENCRYPTION_KEY?.trim();
+    if (!secret) {
+        throw new Error('ENCRYPTION_KEY 未配置');
+    }
+    return secret;
 }
 
 async function decodeAuthCookie(value: string | undefined, secret: string): Promise<AuthData> {

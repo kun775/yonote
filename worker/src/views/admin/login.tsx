@@ -19,7 +19,7 @@ export const AdminLoginPage: FC<LoginPageProps> = ({ error }) => {
                         required
                         autofocus
                     />
-                    <button type="submit">登录</button>
+                    <button type="submit" class="btn primary full-width">登录</button>
                 </form>
             </div>
         </AdminLayout>

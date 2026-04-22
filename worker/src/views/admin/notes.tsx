@@ -59,7 +59,7 @@ export const NotesListPage: FC<NotesListPageProps> = ({ notes, search, filter })
                     <tbody>
                         {notes.notes.length === 0 ? (
                             <tr>
-                                <td colspan="5" style="text-align: center; padding: 40px; color: #666;">
+                                <td colSpan={5} style="text-align: center; padding: 40px; color: #666;">
                                     暂无笔记
                                 </td>
                             </tr>

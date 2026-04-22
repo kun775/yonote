@@ -1,16 +1,31 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { AppEnv } from '../types';
 import { getNoteByKey, createNote, updateNote, deleteNote } from '../db/queries';
 import { encryptContent, decryptContent, hashPassword, verifyPassword, generateKey } from '../services/crypto';
+import { buildMarkdownPdf } from '../services/pdf';
 import { isAuthenticated, setAuthenticated } from '../middleware/auth';
 import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from '../middleware/rateLimit';
 import { ViewPage } from '../views/note/view';
 import { PasswordPage } from '../views/note/password';
+import { isValidKey } from '../utils/validation';
 
 export const noteRoutes = new Hono<AppEnv>();
 
+async function generateAvailableKey(c: Context<AppEnv>): Promise<string> {
+    for (let i = 0; i < 10; i++) {
+        const key = generateKey();
+        const existingNote = await getNoteByKey(c.env.DB, key);
+        if (!existingNote) {
+            return key;
+        }
+    }
+
+    throw new Error('生成可用笔记 key 失败');
+}
+
 noteRoutes.get('/', async (c) => {
-    const key = generateKey();
+    const key = await generateAvailableKey(c);
     // 不创建数据库记录，直接重定向到新 key，等有内容时再保存
     await setAuthenticated(c, key);
     return c.redirect(`/${key}?new=1`);
@@ -19,12 +34,11 @@ noteRoutes.get('/', async (c) => {
 noteRoutes.get('/:key', async (c) => {
     const key = c.req.param('key');
 
-    if (key.length > 128 || !/^[a-zA-Z0-9_-]+$/.test(key)) {
+    if (!isValidKey(key)) {
         return c.redirect('/');
     }
 
     let note = await getNoteByKey(c.env.DB, key);
-    const isNew = !note;
 
     // 如果笔记不存在，不创建记录，只显示空编辑页面
     if (!note) {
@@ -52,7 +66,11 @@ noteRoutes.get('/:key', async (c) => {
 
     let decryptedContent = '';
     if (note.encrypted && note.content) {
-        decryptedContent = await decryptContent(note.content, c.env.ENCRYPTION_KEY);
+        try {
+            decryptedContent = await decryptContent(note.content, c.env.ENCRYPTION_KEY);
+        } catch {
+            return c.text('笔记解密失败，请检查加密密钥配置后重试', 500);
+        }
     } else {
         decryptedContent = note.content;
     }
@@ -134,16 +152,6 @@ noteRoutes.post('/:key/auto-save', async (c) => {
     const key = c.req.param('key');
     const body = await c.req.json<{ content: string }>();
     const content = body.content || '';
-    const trimmedContent = content.trim();
-
-    // 如果内容为空，删除笔记（如果存在）
-    if (!trimmedContent) {
-        const note = await getNoteByKey(c.env.DB, key);
-        if (note) {
-            await deleteNote(c.env.DB, key);
-        }
-        return c.json({ status: 'success', message: '空内容，已清理', timestamp: Math.floor(Date.now() / 1000) });
-    }
 
     let note = await getNoteByKey(c.env.DB, key);
 
@@ -164,6 +172,7 @@ noteRoutes.post('/:key/auto-save', async (c) => {
     const encryptedContent = await encryptContent(content, c.env.ENCRYPTION_KEY);
     const timestamp = Math.floor(Date.now() / 1000);
 
+    // 更新记录（即使内容为空也保留，与 Flask 版本对齐）
     await updateNote(c.env.DB, key, {
         content: encryptedContent,
         encrypted: 1
@@ -291,6 +300,7 @@ noteRoutes.post('/:key/verify-delete', async (c) => {
     const isValid = await verifyPassword(body.password, note.password);
     if (isValid) {
         await clearFailedAttempts(c, key);
+        await setAuthenticated(c, key);
         return c.json({ success: true });
     }
 
@@ -321,6 +331,7 @@ noteRoutes.post('/:key/verify-download', async (c) => {
     const isValid = await verifyPassword(body.password, note.password);
     if (isValid) {
         await clearFailedAttempts(c, key);
+        await setAuthenticated(c, key);
         return c.json({ success: true });
     }
 
@@ -331,7 +342,7 @@ noteRoutes.post('/:key/verify-download', async (c) => {
 
 noteRoutes.get('/:key/download', async (c) => {
     const key = c.req.param('key');
-    const password = c.req.query('password') || '';
+    const format = (c.req.query('format') || 'txt').toLowerCase();
     const note = await getNoteByKey(c.env.DB, key);
 
     if (!note) return c.notFound();
@@ -339,31 +350,57 @@ noteRoutes.get('/:key/download', async (c) => {
     const authenticated = await isAuthenticated(c, key);
 
     if (note.password && !authenticated) {
-        if (password) {
-            const isValid = await verifyPassword(password, note.password);
-            if (!isValid) {
-                return c.text('密码错误', 403);
-            }
-        } else {
-            return c.text('需要密码', 403);
-        }
+        return c.text('需要密码验证', 403);
     }
 
     let content = '';
     if (note.encrypted && note.content) {
-        content = await decryptContent(note.content, c.env.ENCRYPTION_KEY);
+        try {
+            content = await decryptContent(note.content, c.env.ENCRYPTION_KEY);
+        } catch {
+            return c.text('笔记解密失败，请稍后重试', 500);
+        }
     } else {
         content = note.content;
     }
 
+    if (format === 'pdf') {
+        const pdfBinary = buildMarkdownPdf(content);
+        return new Response(pdfBinary, {
+            headers: {
+                'Content-Type': 'application/pdf',
+                'Content-Disposition': `attachment; filename="${key}.pdf"`,
+                'Cache-Control': 'no-store'
+            }
+        });
+    }
+
     return new Response(content, {
         headers: {
-            'Content-Type': 'text/markdown; charset=utf-8',
-            'Content-Disposition': `attachment; filename="${key}.md"`
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${key}.txt"`
         }
     });
 });
 
 noteRoutes.post('/render-markdown', async (c) => {
-    return c.json({ html: '' });
+    try {
+        const body = await c.req.json<{ content: string }>();
+        const content = body.content || '';
+
+        if (!content) {
+            return c.json({ html: '' });
+        }
+
+        // Worker 版本使用客户端渲染（前端 marked + DOMPurify）
+        // 服务端渲染作为未来增强功能预留
+        // 当前返回原始内容，由前端处理
+        return c.json({
+            html: '',
+            message: '请使用客户端渲染（已启用 DOMPurify 安全防护）'
+        });
+    } catch (error) {
+        console.error('Markdown render error:', error);
+        return c.json({ error: '渲染失败' }, 500);
+    }
 });

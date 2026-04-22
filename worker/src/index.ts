@@ -6,6 +6,25 @@ import { adminRoutes } from './routes/admin';
 
 const app = new Hono<AppEnv>();
 
+app.use('*', async (c, next) => {
+    await next();
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('Referrer-Policy', 'no-referrer');
+    c.header('X-Frame-Options', 'DENY');
+    c.header('Content-Security-Policy', [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
+        "img-src 'self' data: https:",
+        "font-src 'self' data: https://cdnjs.cloudflare.com",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'"
+    ].join('; '));
+});
+
 // 静态资源缓存控制
 app.use('/static/*', async (c, next) => {
     await next();

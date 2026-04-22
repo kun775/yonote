@@ -49,7 +49,7 @@ npm run db:init
 wrangler secret put ENCRYPTION_KEY
 
 # 生成管理员密码哈希
-# 访问 /admin/setup?password=your_password 获取哈希值
+# 访问 /admin/setup 使用表单提交密码获取哈希值
 wrangler secret put ADMIN_PASSWORD
 ```
 
@@ -74,9 +74,15 @@ npm run dev
 访问 `/admin` 进入管理后台。
 
 首次使用需要设置管理员密码：
-1. 访问 `/admin/setup?password=你的密码`
-2. 复制返回的哈希值
+1. 访问 `/admin/setup`
+2. 通过表单提交管理员密码，复制返回的哈希值
 3. 运行 `wrangler secret put ADMIN_PASSWORD` 并粘贴哈希值
+
+## 测试
+
+```bash
+npm test
+```
 
 ## 项目结构
 

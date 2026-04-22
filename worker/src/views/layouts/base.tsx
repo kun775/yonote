@@ -1,4 +1,5 @@
 import type { FC, PropsWithChildren } from 'hono/jsx';
+import { raw } from 'hono/html';
 
 interface BaseLayoutProps {
     title: string;
@@ -14,55 +15,60 @@ export const BaseLayout: FC<PropsWithChildren<BaseLayoutProps>> = (props) => {
     const { title, children, noteKey, authenticated, viewOnly, hasPassword, isPublic, updatedAt } = props;
 
     return (
-        <html lang="zh">
-            <head>
-                <meta charset="UTF-8" />
-                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                <title>{title}</title>
-                <link rel="stylesheet" href="/static/style.css" />
-                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css" />
-                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css" />
-                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" />
-                <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
-                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css" />
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
-                <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-                <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-                {noteKey && (
-                    <script dangerouslySetInnerHTML={{
-                        __html: `
-                            window.authenticated = ${authenticated ? 'true' : 'false'};
-                            window.noteUpdatedAt = ${updatedAt || 0};
-                            window.noteKey = "${noteKey}";
-                            window.viewOnly = ${viewOnly ? 'true' : 'false'};
-                            window.password = ${hasPassword ? 'true' : 'false'};
-                            window.public = ${isPublic ? 'true' : 'false'};
-                        `
-                    }} />
-                )}
-                <script src="/static/function.js"></script>
-                <script src="/static/app.js"></script>
-            </head>
-            <body>
-                {children}
-            </body>
-        </html>
+        <>
+            {raw('<!DOCTYPE html>')}
+            <html lang="zh">
+                <head>
+                    <meta charset="UTF-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                    <title>{title}</title>
+                    <link rel="stylesheet" href="/static/style.css" />
+                    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown.min.css" />
+                    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css" />
+                    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" />
+                    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css" />
+                    <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js" defer></script>
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js" defer></script>
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js" defer></script>
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js" defer></script>
+                    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" defer></script>
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js" defer></script>
+                    {noteKey && (
+                        <script dangerouslySetInnerHTML={{
+                            __html: `
+                                window.authenticated = ${authenticated ? 'true' : 'false'};
+                                window.noteUpdatedAt = ${updatedAt || 0};
+                                window.noteKey = ${JSON.stringify(noteKey)};
+                                window.viewOnly = ${viewOnly ? 'true' : 'false'};
+                                window.password = ${hasPassword ? 'true' : 'false'};
+                                window.public = ${isPublic ? 'true' : 'false'};
+                            `
+                        }} />
+                    )}
+                    <script src="/static/function.js" defer></script>
+                    <script src="/static/app.js" defer></script>
+                </head>
+                <body>
+                    {children}
+                </body>
+            </html>
+        </>
     );
 };
 
 export const AdminLayout: FC<PropsWithChildren<{ title: string }>> = ({ title, children }) => {
     return (
-        <html lang="zh">
-            <head>
-                <meta charset="UTF-8" />
-                <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                <title>{title} - YoNote 管理</title>
-                <link rel="stylesheet" href="/static/style.css" />
-                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" />
-                <style dangerouslySetInnerHTML={{
-                    __html: `
+        <>
+            {raw('<!DOCTYPE html>')}
+            <html lang="zh">
+                <head>
+                    <meta charset="UTF-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                    <title>{title} - YoNote 管理</title>
+                    <link rel="stylesheet" href="/static/style.css" />
+                    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" />
+                    <style dangerouslySetInnerHTML={{
+                        __html: `
                         .admin-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
                         .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
                         .admin-nav { display: flex; gap: 15px; }
@@ -85,15 +91,11 @@ export const AdminLayout: FC<PropsWithChildren<{ title: string }>> = ({ title, c
                         .login-form { max-width: 400px; margin: 100px auto; padding: 40px; background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
                         .login-form h2 { text-align: center; margin-bottom: 30px; }
                         .login-form input { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-                        .login-form button { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
-                        .login-form button:hover { background: #0056b3; }
+                        .login-form .btn { width: 100%; min-height: 44px; font-size: 15px; }
                         .error-message { color: #dc3545; margin-bottom: 15px; text-align: center; }
                         .stat-card.empty-notes { position: relative; }
                         .stat-card.empty-notes .value { color: #dc3545; }
                         .delete-empty-btn { margin-top: 10px; }
-                        .btn.danger { background: #dc3545; color: white; border: none; cursor: pointer; }
-                        .btn.danger:hover { background: #c82333; }
-                        .btn.small { padding: 6px 12px; font-size: 12px; border-radius: 4px; }
                     `
                 }} />
                 <script dangerouslySetInnerHTML={{
@@ -118,12 +120,13 @@ export const AdminLayout: FC<PropsWithChildren<{ title: string }>> = ({ title, c
                                 alert('删除失败: ' + error.message);
                             }
                         }
-                    `
-                }} />
-            </head>
-            <body>
-                {children}
-            </body>
-        </html>
+                        `
+                    }} />
+                </head>
+                <body>
+                    {children}
+                </body>
+            </html>
+        </>
     );
 };
