@@ -14,7 +14,11 @@ export const NotesListPage: FC<NotesListPageProps> = ({ notes, search, filter })
         <AdminLayout title="笔记管理">
             <div class="admin-container">
                 <div class="admin-header">
-                    <h1>笔记管理</h1>
+                    <div class="admin-title-group">
+                        <div class="admin-kicker">NOTES</div>
+                        <h1>笔记管理</h1>
+                        <p class="admin-subtitle">检索、筛选和处理所有笔记记录。</p>
+                    </div>
                     <nav class="admin-nav">
                         <a href="/admin/dashboard">
                             <i class="fas fa-tachometer-alt"></i> 仪表盘
@@ -22,7 +26,7 @@ export const NotesListPage: FC<NotesListPageProps> = ({ notes, search, filter })
                         <a href="/admin/notes" class="active">
                             <i class="fas fa-sticky-note"></i> 笔记管理
                         </a>
-                        <form action="/admin/logout" method="post" style="display: inline;">
+                        <form action="/admin/logout" method="post" class="admin-nav-form">
                             <button type="submit" class="btn small">
                                 <i class="fas fa-sign-out-alt"></i> 退出
                             </button>
@@ -46,54 +50,67 @@ export const NotesListPage: FC<NotesListPageProps> = ({ notes, search, filter })
                     <button type="submit" class="btn primary">搜索</button>
                 </form>
 
-                <table class="notes-table">
-                    <thead>
-                        <tr>
-                            <th>Key</th>
-                            <th>状态</th>
-                            <th>内容预览</th>
-                            <th>更新时间</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {notes.notes.length === 0 ? (
-                            <tr>
-                                <td colSpan={5} style="text-align: center; padding: 40px; color: #666;">
-                                    暂无笔记
-                                </td>
-                            </tr>
-                        ) : (
-                            notes.notes.map(note => (
+                <section class="admin-panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>笔记列表</h2>
+                            <p class="panel-note">当前筛选结果共 {notes.total} 条。</p>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="notes-table">
+                            <thead>
                                 <tr>
-                                    <td>
-                                        <a href={`/${note.key}`} target="_blank">{note.key}</a>
-                                    </td>
-                                    <td>
-                                        {note.password && !note.public && <span class="status-badge private">私有</span>}
-                                        {note.password && note.public && <span class="status-badge protected">受保护</span>}
-                                        {!note.password && <span class="status-badge public">公开</span>}
-                                    </td>
-                                    <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                        {note.encrypted ? '[已加密]' : (note.content.slice(0, 50) + (note.content.length > 50 ? '...' : ''))}
-                                    </td>
-                                    <td>{timeAgo(note.updated_at)}</td>
-                                    <td>
-                                        <a href={`/admin/notes/${note.key}`} class="btn small">
-                                            <i class="fas fa-eye"></i>
-                                        </a>
-                                        <button
-                                            class="btn small danger"
-                                            onclick={`if(confirm('确定删除笔记 ${note.key}？')) fetch('/admin/notes/${note.key}', {method:'DELETE'}).then(()=>location.reload())`}
-                                        >
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </td>
+                                    <th>Key</th>
+                                    <th>状态</th>
+                                    <th>内容预览</th>
+                                    <th>更新时间</th>
+                                    <th>操作</th>
                                 </tr>
-                            ))
-                        )}
-                    </tbody>
-                </table>
+                            </thead>
+                            <tbody>
+                                {notes.notes.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={5} class="admin-empty">
+                                            暂无笔记
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    notes.notes.map(note => (
+                                        <tr>
+                                            <td>
+                                                <a href={`/${note.key}`} target="_blank" class="note-key-link">{note.key}</a>
+                                            </td>
+                                            <td>
+                                                {note.password && !Boolean(note.public) && <span class="status-badge private">私有</span>}
+                                                {note.password && Boolean(note.public) && <span class="status-badge protected">受保护</span>}
+                                                {!note.password && <span class="status-badge public">公开</span>}
+                                            </td>
+                                            <td class="note-preview-cell">
+                                                {note.encrypted ? '[已加密]' : (note.content.slice(0, 50) + (note.content.length > 50 ? '...' : ''))}
+                                            </td>
+                                            <td>{timeAgo(note.updated_at)}</td>
+                                            <td>
+                                                <span class="table-actions">
+                                                    <a href={`/admin/notes/${note.key}`} class="btn small" title="查看详情">
+                                                        <i class="fas fa-eye"></i>
+                                                    </a>
+                                                    <button
+                                                        class="btn small danger"
+                                                        title="删除笔记"
+                                                        onclick={`if(confirm('确定删除笔记 ${note.key}？')) fetch('/admin/notes/${note.key}', {method:'DELETE'}).then(()=>location.reload())`}
+                                                    >
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
 
                 {notes.totalPages > 1 && (
                     <div class="pagination">
@@ -118,7 +135,7 @@ export const NotesListPage: FC<NotesListPageProps> = ({ notes, search, filter })
                     </div>
                 )}
 
-                <p style="text-align: center; color: #666; margin-top: 20px;">
+                <p class="list-summary">
                     共 {notes.total} 条笔记，当前第 {notes.page} 页，共 {notes.totalPages} 页
                 </p>
             </div>
@@ -135,7 +152,11 @@ export const NoteDetailPage: FC<NoteDetailPageProps> = ({ note }) => {
         <AdminLayout title={`笔记详情 - ${note.key}`}>
             <div class="admin-container">
                 <div class="admin-header">
-                    <h1>笔记详情: {note.key}</h1>
+                    <div class="admin-title-group">
+                        <div class="admin-kicker">NOTE DETAIL</div>
+                        <h1>笔记详情: {note.key}</h1>
+                        <p class="admin-subtitle">查看笔记状态、加密情况和内容预览。</p>
+                    </div>
                     <nav class="admin-nav">
                         <a href="/admin/notes">
                             <i class="fas fa-arrow-left"></i> 返回列表
@@ -149,28 +170,38 @@ export const NoteDetailPage: FC<NoteDetailPageProps> = ({ note }) => {
                 <div class="stats-grid">
                     <div class="stat-card">
                         <h3>状态</h3>
-                        <div>
-                            {note.password && !note.public && <span class="status-badge private">私有笔记</span>}
-                            {note.password && note.public && <span class="status-badge protected">受保护公开</span>}
+                        <span class="stat-icon"><i class="fas fa-shield-alt"></i></span>
+                        <div class="stat-detail">
+                            {note.password && !Boolean(note.public) && <span class="status-badge private">私有笔记</span>}
+                            {note.password && Boolean(note.public) && <span class="status-badge protected">受保护公开</span>}
                             {!note.password && <span class="status-badge public">公开笔记</span>}
                         </div>
                     </div>
                     <div class="stat-card">
                         <h3>加密</h3>
-                        <div>{note.encrypted ? '是' : '否'}</div>
+                        <span class="stat-icon"><i class="fas fa-key"></i></span>
+                        <div class="stat-detail">{note.encrypted ? '是' : '否'}</div>
                     </div>
                     <div class="stat-card">
                         <h3>更新时间</h3>
-                        <div>{timeAgo(note.updated_at)}</div>
+                        <span class="stat-icon"><i class="fas fa-clock"></i></span>
+                        <div class="stat-detail">{timeAgo(note.updated_at)}</div>
                     </div>
                 </div>
 
-                <h2>内容预览</h2>
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; white-space: pre-wrap; font-family: monospace; max-height: 400px; overflow: auto;">
-                    {note.encrypted ? (note.decryptedContent || '[已加密，无法预览]') : note.content}
-                </div>
+                <section class="admin-panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>内容预览</h2>
+                            <p class="panel-note">仅用于管理复核，编辑请打开笔记原页面。</p>
+                        </div>
+                    </div>
+                    <div class="note-preview-box">
+                        {note.encrypted ? (note.decryptedContent || '[已加密，无法预览]') : note.content}
+                    </div>
+                </section>
 
-                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                <div class="admin-actions">
                     <a href={`/${note.key}`} target="_blank" class="btn primary">
                         <i class="fas fa-edit"></i> 编辑笔记
                     </a>

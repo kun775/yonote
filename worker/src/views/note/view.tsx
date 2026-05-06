@@ -182,10 +182,10 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
                                         <span class="warning-text">无需密码即可查看</span>
                                     </label>
                                     <p class="form-help">
-                                        {note.password && !note.public && (
+                                        {note.password && !Boolean(note.public) && (
                                             <><span class="status-badge private">私有笔记</span> 有密码保护且不公开，需要密码才能查看和编辑</>
                                         )}
-                                        {note.password && note.public && (
+                                        {note.password && Boolean(note.public) && (
                                             <><span class="status-badge protected">受保护公开</span> 有密码保护但可以公开查看，需要密码才能编辑</>
                                         )}
                                         {!note.password && (
