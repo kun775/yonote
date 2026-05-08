@@ -31,8 +31,18 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
     expires_at INTEGER NOT NULL
 );
 
+-- 通用速率限制表（按 IP + bucket 滚动窗口）
+CREATE TABLE IF NOT EXISTS rate_limits (
+    ip TEXT NOT NULL,
+    bucket TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    reset_at INTEGER NOT NULL,
+    PRIMARY KEY (ip, bucket)
+);
+
 -- 索引
 CREATE INDEX IF NOT EXISTS idx_notes_key ON notes(key);
 CREATE INDEX IF NOT EXISTS idx_lockouts_ip_key ON lockouts(ip, note_key);
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON admin_sessions(token);
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_reset ON rate_limits(reset_at);

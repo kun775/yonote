@@ -4,7 +4,13 @@ import type { AppEnv } from '../types';
 import type { Note } from '../db/queries';
 import { createNote, getNoteByKey, updateNote } from '../db/queries';
 import { isAuthenticated } from '../middleware/auth';
-import { clearFailedAttempts, isLockedOut, recordFailedAttempt } from '../middleware/rateLimit';
+import {
+    checkWriteRateLimit,
+    clearFailedAttempts,
+    isLockedOut,
+    MAX_NOTE_CONTENT_BYTES,
+    recordFailedAttempt
+} from '../middleware/rateLimit';
 import { decryptContent, encryptContent, hashPassword, isLegacyPasswordHash, verifyPassword } from '../services/crypto';
 import { isValidKey } from '../utils/validation';
 
@@ -17,7 +23,7 @@ interface NoteWritePayload {
     public?: unknown;
 }
 
-function jsonError(c: Context<AppEnv>, status: 400 | 403 | 404 | 429 | 500, message: string) {
+function jsonError(c: Context<AppEnv>, status: 400 | 403 | 404 | 413 | 429 | 500, message: string) {
     return c.json({ status: 'error', message }, status);
 }
 
@@ -158,6 +164,12 @@ apiRoutes.post('/notes/:key', async (c) => {
         return jsonError(c, 400, '无效的笔记 key');
     }
 
+    const rateLimit = await checkWriteRateLimit(c, 'api:write');
+    if (!rateLimit.allowed) {
+        c.header('Retry-After', String(rateLimit.retryAfter));
+        return jsonError(c, 429, `写入过于频繁，请等待 ${rateLimit.retryAfter} 秒后再试`);
+    }
+
     let body: NoteWritePayload;
     try {
         body = await c.req.json<NoteWritePayload>();
@@ -167,6 +179,11 @@ apiRoutes.post('/notes/:key', async (c) => {
 
     if (typeof body.content !== 'string') {
         return jsonError(c, 400, 'content 必须是字符串');
+    }
+
+    const contentByteLength = new TextEncoder().encode(body.content).length;
+    if (contentByteLength > MAX_NOTE_CONTENT_BYTES) {
+        return jsonError(c, 413, `笔记内容超出上限 ${MAX_NOTE_CONTENT_BYTES} 字节`);
     }
 
     let note = await getNoteByKey(c.env.DB, key);

@@ -116,8 +116,10 @@ export async function listNotes(db: D1Database, options: ListOptions): Promise<P
     const params: (string | number)[] = [];
 
     if (search) {
-        whereClause += ' AND (key LIKE ? OR content LIKE ?)';
-        params.push(`%${search}%`, `%${search}%`);
+        // 转义 LIKE 通配符，避免用户输入的 % / _ / \ 影响匹配或引发全表扫描
+        const escaped = search.replace(/[\\%_]/g, (char) => `\\${char}`);
+        whereClause += " AND (key LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')";
+        params.push(`%${escaped}%`, `%${escaped}%`);
     }
 
     if (filter === 'public') {
@@ -210,4 +212,31 @@ export async function deleteAdminSession(db: D1Database, token: string): Promise
 export async function cleanExpiredSessions(db: D1Database): Promise<void> {
     const now = Math.floor(Date.now() / 1000);
     await db.prepare('DELETE FROM admin_sessions WHERE expires_at < ?').bind(now).run();
+}
+
+// Rate limit functions
+
+export interface RateLimitRecord {
+    count: number;
+    reset_at: number;
+}
+
+export async function getRateLimit(db: D1Database, ip: string, bucket: string): Promise<RateLimitRecord | null> {
+    const result = await db.prepare(
+        'SELECT count, reset_at FROM rate_limits WHERE ip = ? AND bucket = ?'
+    ).bind(ip, bucket).first<RateLimitRecord>();
+    return result || null;
+}
+
+export async function resetRateLimit(db: D1Database, ip: string, bucket: string, resetAt: number): Promise<void> {
+    await db.prepare(`
+        INSERT INTO rate_limits (ip, bucket, count, reset_at) VALUES (?, ?, 1, ?)
+        ON CONFLICT(ip, bucket) DO UPDATE SET count = 1, reset_at = ?
+    `).bind(ip, bucket, resetAt, resetAt).run();
+}
+
+export async function incrementRateLimit(db: D1Database, ip: string, bucket: string): Promise<void> {
+    await db.prepare(
+        'UPDATE rate_limits SET count = count + 1 WHERE ip = ? AND bucket = ?'
+    ).bind(ip, bucket).run();
 }

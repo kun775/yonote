@@ -5,7 +5,13 @@ import { getNoteByKey, createNote, updateNote, deleteNote } from '../db/queries'
 import { encryptContent, decryptContent, hashPassword, isLegacyPasswordHash, verifyPassword, generateKey } from '../services/crypto';
 import { buildMarkdownPdf } from '../services/pdf';
 import { isAuthenticated, setAuthenticated } from '../middleware/auth';
-import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from '../middleware/rateLimit';
+import {
+    checkWriteRateLimit,
+    clearFailedAttempts,
+    isLockedOut,
+    MAX_NOTE_CONTENT_BYTES,
+    recordFailedAttempt
+} from '../middleware/rateLimit';
 import { ViewPage } from '../views/note/view';
 import { PasswordPage } from '../views/note/password';
 import { isValidKey } from '../utils/validation';
@@ -164,6 +170,16 @@ noteRoutes.post('/:key/auto-save', async (c) => {
     const body = await c.req.json<{ content: string }>();
     const content = body.content || '';
 
+    if (new TextEncoder().encode(content).length > MAX_NOTE_CONTENT_BYTES) {
+        return c.json({ status: 'error', message: `笔记内容超出上限 ${MAX_NOTE_CONTENT_BYTES} 字节` }, 413);
+    }
+
+    const rateLimit = await checkWriteRateLimit(c, 'note:auto-save');
+    if (!rateLimit.allowed) {
+        c.header('Retry-After', String(rateLimit.retryAfter));
+        return c.json({ status: 'error', message: `写入过于频繁，请等待 ${rateLimit.retryAfter} 秒后再试` }, 429);
+    }
+
     let note = await getNoteByKey(c.env.DB, key);
 
     // 如果笔记不存在，先创建
@@ -200,6 +216,18 @@ noteRoutes.post('/:key/update', async (c) => {
     const passwordAction = formData['password_action'] as string || 'keep';
     const newPassword = formData['new_password'] as string || '';
     let isPublic = formData['public'] ? 1 : 0;
+
+    if (new TextEncoder().encode(content).length > MAX_NOTE_CONTENT_BYTES) {
+        const errorMsg = `笔记内容超出上限 ${MAX_NOTE_CONTENT_BYTES} 字节`;
+        return c.redirect(`/${key}?error=${encodeURIComponent(errorMsg)}`);
+    }
+
+    const rateLimit = await checkWriteRateLimit(c, 'note:update');
+    if (!rateLimit.allowed) {
+        const errorMsg = `写入过于频繁，请等待 ${rateLimit.retryAfter} 秒后再试`;
+        c.header('Retry-After', String(rateLimit.retryAfter));
+        return c.redirect(`/${key}?error=${encodeURIComponent(errorMsg)}`);
+    }
 
     // 如果内容为空且没有设置密码，删除笔记
     if (!trimmedContent && passwordAction !== 'change') {
@@ -411,26 +439,4 @@ noteRoutes.get('/:key/download', async (c) => {
             'Cache-Control': 'no-store'
         }
     });
-});
-
-noteRoutes.post('/render-markdown', async (c) => {
-    try {
-        const body = await c.req.json<{ content: string }>();
-        const content = body.content || '';
-
-        if (!content) {
-            return c.json({ html: '' });
-        }
-
-        // Worker 版本使用客户端渲染（前端 marked + DOMPurify）
-        // 服务端渲染作为未来增强功能预留
-        // 当前返回原始内容，由前端处理
-        return c.json({
-            html: '',
-            message: '请使用客户端渲染（已启用 DOMPurify 安全防护）'
-        });
-    } catch (error) {
-        console.error('Markdown render error:', error);
-        return c.json({ error: '渲染失败' }, 500);
-    }
 });
