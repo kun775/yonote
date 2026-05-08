@@ -66,7 +66,7 @@ export const DashboardPage: FC<DashboardPageProps> = ({ stats }) => {
                             <button
                                 type="button"
                                 class="btn danger small delete-empty-btn"
-                                onclick="deleteEmptyNotes()"
+                                data-delete-empty-notes="true"
                             >
                                 <i class="fas fa-trash"></i> 一键清理
                             </button>

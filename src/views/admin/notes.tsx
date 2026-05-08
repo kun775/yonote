@@ -98,7 +98,8 @@ export const NotesListPage: FC<NotesListPageProps> = ({ notes, search, filter })
                                                     <button
                                                         class="btn small danger"
                                                         title="删除笔记"
-                                                        onclick={`if(confirm('确定删除笔记 ${note.key}？')) fetch('/admin/notes/${note.key}', {method:'DELETE'}).then(()=>location.reload())`}
+                                                        data-delete-note-key={note.key}
+                                                        data-delete-redirect="reload"
                                                     >
                                                         <i class="fas fa-trash"></i>
                                                     </button>
@@ -207,7 +208,8 @@ export const NoteDetailPage: FC<NoteDetailPageProps> = ({ note }) => {
                     </a>
                     <button
                         class="btn danger"
-                        onclick={`if(confirm('确定删除笔记 ${note.key}？此操作不可撤销！')) fetch('/admin/notes/${note.key}', {method:'DELETE'}).then(()=>location.href='/admin/notes')`}
+                        data-delete-note-key={note.key}
+                        data-delete-redirect="/admin/notes"
                     >
                         <i class="fas fa-trash"></i> 删除笔记
                     </button>

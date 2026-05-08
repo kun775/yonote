@@ -47,6 +47,9 @@ npm run db:init
 # 设置加密密钥
 wrangler secret put ENCRYPTION_KEY
 
+# 设置认证 Cookie 签名密钥（建议使用独立随机字符串，不要与 ENCRYPTION_KEY 相同）
+wrangler secret put AUTH_SECRET
+
 # 生成管理员密码哈希
 # 访问 /admin/setup 使用表单提交密码获取哈希值
 wrangler secret put ADMIN_PASSWORD
@@ -76,6 +79,64 @@ npm run dev
 1. 访问 `/admin/setup`
 2. 通过表单提交管理员密码，复制返回的哈希值
 3. 运行 `wrangler secret put ADMIN_PASSWORD` 并粘贴哈希值
+
+## API 接口
+
+### 读取指定笔记
+
+```bash
+curl https://your-domain.example/api/notes/<note-key>
+```
+
+私有保护笔记需要通过 `x-admin-auth` 请求头提交笔记密码：
+
+```bash
+curl https://your-domain.example/api/notes/<note-key> \
+  -H "x-admin-auth: <note-password>"
+```
+
+### 写入指定笔记
+
+默认覆盖写入；如果笔记不存在，会自动创建。
+
+```bash
+curl -X POST https://your-domain.example/api/notes/<note-key> \
+  -H "Content-Type: application/json" \
+  -d '{"content":"新的笔记内容"}'
+```
+
+追加写入：
+
+```bash
+curl -X POST https://your-domain.example/api/notes/<note-key> \
+  -H "Content-Type: application/json" \
+  -d '{"content":"追加内容","append":true}'
+```
+
+创建或更新密码保护笔记：
+
+```bash
+curl -X POST https://your-domain.example/api/notes/<note-key> \
+  -H "Content-Type: application/json" \
+  -d '{"content":"受保护内容","password":"note-password"}'
+```
+
+公开保护表示访问不需要密码，编辑需要密码：
+
+```bash
+curl -X POST https://your-domain.example/api/notes/<note-key> \
+  -H "Content-Type: application/json" \
+  -d '{"content":"公开可读内容","password":"note-password","public":true}'
+```
+
+编辑已有受保护笔记时，需要提交当前笔记密码：
+
+```bash
+curl -X POST https://your-domain.example/api/notes/<note-key> \
+  -H "Content-Type: application/json" \
+  -H "x-admin-auth: <note-password>" \
+  -d '{"content":"更新后的内容"}'
+```
 
 ## 测试
 

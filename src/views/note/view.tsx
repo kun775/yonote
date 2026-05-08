@@ -85,7 +85,7 @@ export const ViewPage: FC<ViewPageProps> = ({ note, viewOnly, authenticated, bas
 
                     <div class="note-actions">
                         <div class="action-buttons">
-                            <button id="new-note-btn" class="btn small" onclick="window.location.href='/'">
+                            <button id="new-note-btn" class="btn small">
                                 <i class="fas fa-file"></i> 新建
                             </button>
 

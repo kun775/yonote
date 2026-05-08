@@ -15,6 +15,12 @@ database_id = "<YOUR_D1_DATABASE_ID>"
 [vars]
 ENVIRONMENT = "development"
 
+# 敏感配置不要写入 wrangler.toml。
+# 本地开发写入 .dev.vars，生产环境使用 wrangler secret put：
+# ENCRYPTION_KEY=<内容加密密钥>
+# AUTH_SECRET=<认证 Cookie 签名密钥，必须独立于 ENCRYPTION_KEY>
+# ADMIN_PASSWORD=<管理员密码哈希>
+
 # 静态资源配置
 [assets]
 directory = "./public"

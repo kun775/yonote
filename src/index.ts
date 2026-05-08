@@ -13,7 +13,7 @@ app.use('*', async (c, next) => {
     c.header('X-Frame-Options', 'DENY');
     c.header('Content-Security-Policy', [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
+        "script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
         "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
         "img-src 'self' data: https:",
         "font-src 'self' data: https://cdnjs.cloudflare.com",

@@ -190,6 +190,10 @@ export async function verifyPassword(password: string, storedHash: string): Prom
     return timingSafeEqual(legacyBytes, storedBytes);
 }
 
+export function isLegacyPasswordHash(storedHash: string): boolean {
+    return Boolean(storedHash) && !storedHash.startsWith(PASSWORD_PREFIX);
+}
+
 export function generateKey(minLength = DEFAULT_KEY_LENGTH, maxLength = DEFAULT_KEY_LENGTH): string {
     const length = Math.floor(Math.random() * (maxLength - minLength + 1)) + minLength;
 

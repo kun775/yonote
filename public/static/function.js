@@ -1,3 +1,16 @@
+function initializeNoteGlobals() {
+    const dataset = document.body ? document.body.dataset : {};
+    window.authenticated = dataset.authenticated === 'true';
+    window.noteUpdatedAt = Number(dataset.noteUpdatedAt || 0);
+    window.noteKey = dataset.noteKey || '';
+    window.viewOnly = dataset.viewOnly === 'true';
+    window.password = dataset.password === 'true';
+    window.public = dataset.public === 'true';
+    window.noteDirty = false;
+}
+
+initializeNoteGlobals();
+
 let lastSaveTime = window.noteUpdatedAt;
 
 function escapeHtml(text) {
@@ -489,6 +502,91 @@ function updatePublicOption() {
     }
 }
 
+function buildProtectedNoteRedirectUrl(noteKey, isPublic) {
+    const encodedKey = encodeURIComponent(noteKey);
+    return isPublic ? `/${encodedKey}?view=1` : `/${encodedKey}`;
+}
+
+function applyRemoteNoteContent(note) {
+    if (!note || typeof note.content !== 'string') return;
+    if (!Number.isFinite(note.updatedAt) || note.updatedAt <= lastSaveTime) return;
+    if (window.noteDirty) return;
+
+    const contentElement = document.getElementById('content');
+    if (!contentElement || contentElement.value === note.content) {
+        lastSaveTime = note.updatedAt;
+        window.noteUpdatedAt = note.updatedAt;
+        updateTimeAgo();
+        return;
+    }
+
+    contentElement.value = note.content;
+
+    const settingsContentInput = document.getElementById('settings-content-input');
+    if (settingsContentInput) {
+        settingsContentInput.value = note.content;
+    }
+
+    lastSaveTime = note.updatedAt;
+    window.noteUpdatedAt = note.updatedAt;
+    updateTimeAgo();
+    document.dispatchEvent(new CustomEvent('yonote:content-updated', {
+        detail: { content: note.content }
+    }));
+}
+
+// checkNoteProtectionStatus 检查 note 是否已被外部接口设置为受保护状态
+//
+// 参数: 无
+//
+// 元数据:
+//   - 作者: VitaHuang
+//   - 创建时间: 2026-05-08
+//   - 更新时间: 2026-05-08
+//   - 更新内容: 初始化已打开页面的 note 保护状态同步逻辑。
+async function checkNoteProtectionStatus() {
+    if (!window.noteKey) return;
+
+    try {
+        const response = await fetch(`/api/notes/${encodeURIComponent(window.noteKey)}`, {
+            headers: {
+                'Accept': 'application/json'
+            },
+            cache: 'no-store',
+            credentials: 'same-origin'
+        });
+
+        if (response.status === 403) {
+            window.password = true;
+            window.public = false;
+            if (!window.authenticated) {
+                window.location.href = buildProtectedNoteRedirectUrl(window.noteKey, false);
+            }
+            return;
+        }
+
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const note = data && data.note;
+        if (!note) return;
+
+        applyRemoteNoteContent(note);
+
+        if (!note.hasPassword) return;
+
+        window.password = true;
+        window.public = Boolean(note.public);
+
+        if (!window.authenticated && (!window.viewOnly || !note.public)) {
+            window.location.href = buildProtectedNoteRedirectUrl(window.noteKey, Boolean(note.public));
+            return;
+        }
+    } catch (error) {
+        console.warn('检查笔记保护状态失败:', error);
+    }
+}
+
 async function downloadNote(options = {}) {
     const normalized = typeof options === 'object' && options !== null
         ? options
@@ -519,6 +617,17 @@ function autoSave() {
         body: JSON.stringify({ content }),
     })
     .then(response => {
+        if (response.status === 403) {
+            window.password = true;
+            window.authenticated = false;
+
+            if (typeof window.promptNotePasswordVerification === 'function') {
+                window.promptNotePasswordVerification();
+            } else if (typeof checkNoteProtectionStatus === 'function') {
+                checkNoteProtectionStatus();
+            }
+            throw new Error('权限已变更，请重新验证');
+        }
         if (!response.ok) {
             throw new Error('保存失败');
         }
@@ -528,6 +637,8 @@ function autoSave() {
         console.log('自动保存成功:', data);
         // 更新最后保存时间
         lastSaveTime = data.timestamp;
+        window.noteUpdatedAt = data.timestamp;
+        window.noteDirty = false;
         updateTimeAgo();
         
         // 可以添加一个小提示，表示已保存

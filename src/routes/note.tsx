@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { AppEnv } from '../types';
 import { getNoteByKey, createNote, updateNote, deleteNote } from '../db/queries';
-import { encryptContent, decryptContent, hashPassword, verifyPassword, generateKey } from '../services/crypto';
+import { encryptContent, decryptContent, hashPassword, isLegacyPasswordHash, verifyPassword, generateKey } from '../services/crypto';
 import { buildMarkdownPdf } from '../services/pdf';
 import { isAuthenticated, setAuthenticated } from '../middleware/auth';
 import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from '../middleware/rateLimit';
@@ -35,6 +35,9 @@ noteRoutes.get('/:key', async (c) => {
     const key = c.req.param('key');
 
     if (!isValidKey(key)) {
+        if (key.includes('.')) {
+            return c.text('Not Found', 404);
+        }
         return c.redirect('/');
     }
 
@@ -44,6 +47,7 @@ noteRoutes.get('/:key', async (c) => {
     if (!note) {
         await setAuthenticated(c, key);
         const baseUrl = new URL(c.req.url).origin;
+        c.header('Cache-Control', 'no-store');
         return c.html(
             <ViewPage
                 note={{
@@ -76,12 +80,13 @@ noteRoutes.get('/:key', async (c) => {
     }
 
     const viewOnly = c.req.query('view') === '1';
-    const authenticated = await isAuthenticated(c, key);
+    const authenticated = await isAuthenticated(c, key, note.password);
 
     if (note.password && !authenticated) {
         // 受保护笔记（有密码但公开）：未认证时默认预览模式
         if (note.public) {
             const baseUrl = new URL(c.req.url).origin;
+            c.header('Cache-Control', 'no-store');
             return c.html(
                 <ViewPage
                     note={{ ...note, decryptedContent }}
@@ -96,6 +101,7 @@ noteRoutes.get('/:key', async (c) => {
     }
 
     const baseUrl = new URL(c.req.url).origin;
+    c.header('Cache-Control', 'no-store');
     return c.html(
         <ViewPage
             note={{ ...note, decryptedContent }}
@@ -130,7 +136,12 @@ noteRoutes.post('/:key/verify', async (c) => {
 
     if (isValid) {
         await clearFailedAttempts(c, key);
-        await setAuthenticated(c, key);
+        let passwordHash = note.password;
+        if (passwordHash && isLegacyPasswordHash(passwordHash)) {
+            passwordHash = await hashPassword(password);
+            await updateNote(c.env.DB, key, { password: passwordHash });
+        }
+        await setAuthenticated(c, key, passwordHash);
         return c.redirect(nextUrl);
     }
 
@@ -164,7 +175,7 @@ noteRoutes.post('/:key/auto-save', async (c) => {
         }
     }
 
-    const authenticated = await isAuthenticated(c, key);
+    const authenticated = await isAuthenticated(c, key, note.password);
     if (note.password && !authenticated) {
         return c.json({ status: 'error', message: '未授权的操作' }, 403);
     }
@@ -208,7 +219,7 @@ noteRoutes.post('/:key/update', async (c) => {
         if (!note) return c.redirect('/');
     }
 
-    const authenticated = await isAuthenticated(c, key);
+    const authenticated = await isAuthenticated(c, key, note.password);
     if (note.password && !authenticated) {
         return c.redirect(`/${key}`);
     }
@@ -236,6 +247,10 @@ noteRoutes.post('/:key/update', async (c) => {
         }
 
         await clearFailedAttempts(c, key);
+        if (isLegacyPasswordHash(note.password)) {
+            note.password = await hashPassword(currentPassword);
+            await updateNote(c.env.DB, key, { password: note.password });
+        }
     }
 
     let updatedPassword: string | null = note.password;
@@ -260,6 +275,10 @@ noteRoutes.post('/:key/update', async (c) => {
         encrypted: 1
     });
 
+    if (updatedPassword) {
+        await setAuthenticated(c, key, updatedPassword);
+    }
+
     return c.redirect(`/${key}`);
 });
 
@@ -269,7 +288,7 @@ noteRoutes.post('/:key/delete', async (c) => {
 
     if (!note) return c.redirect('/');
 
-    const authenticated = await isAuthenticated(c, key);
+    const authenticated = await isAuthenticated(c, key, note.password);
     if (note.password && !authenticated) {
         return c.redirect(`/${key}`);
     }
@@ -300,7 +319,12 @@ noteRoutes.post('/:key/verify-delete', async (c) => {
     const isValid = await verifyPassword(body.password, note.password);
     if (isValid) {
         await clearFailedAttempts(c, key);
-        await setAuthenticated(c, key);
+        let passwordHash = note.password;
+        if (isLegacyPasswordHash(passwordHash)) {
+            passwordHash = await hashPassword(body.password);
+            await updateNote(c.env.DB, key, { password: passwordHash });
+        }
+        await setAuthenticated(c, key, passwordHash);
         return c.json({ success: true });
     }
 
@@ -331,7 +355,12 @@ noteRoutes.post('/:key/verify-download', async (c) => {
     const isValid = await verifyPassword(body.password, note.password);
     if (isValid) {
         await clearFailedAttempts(c, key);
-        await setAuthenticated(c, key);
+        let passwordHash = note.password;
+        if (isLegacyPasswordHash(passwordHash)) {
+            passwordHash = await hashPassword(body.password);
+            await updateNote(c.env.DB, key, { password: passwordHash });
+        }
+        await setAuthenticated(c, key, passwordHash);
         return c.json({ success: true });
     }
 
@@ -347,7 +376,7 @@ noteRoutes.get('/:key/download', async (c) => {
 
     if (!note) return c.notFound();
 
-    const authenticated = await isAuthenticated(c, key);
+    const authenticated = await isAuthenticated(c, key, note.password);
 
     if (note.password && !authenticated) {
         return c.text('需要密码验证', 403);
@@ -378,7 +407,8 @@ noteRoutes.get('/:key/download', async (c) => {
     return new Response(content, {
         headers: {
             'Content-Type': 'text/plain; charset=utf-8',
-            'Content-Disposition': `attachment; filename="${key}.txt"`
+            'Content-Disposition': `attachment; filename="${key}.txt"`,
+            'Cache-Control': 'no-store'
         }
     });
 });

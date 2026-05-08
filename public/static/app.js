@@ -107,6 +107,24 @@ document.addEventListener('DOMContentLoaded', (event) => {
     // 从全局变量中获取
    
     const noteKey = window.noteKey; // 使用传递的 note key
+    const newNoteBtn = document.getElementById('new-note-btn');
+
+    if (newNoteBtn) {
+        newNoteBtn.addEventListener('click', () => {
+            window.location.href = '/';
+        });
+    }
+
+    if (noteKey && typeof checkNoteProtectionStatus === 'function') {
+        checkNoteProtectionStatus();
+        setInterval(checkNoteProtectionStatus, 15000);
+        window.addEventListener('focus', checkNoteProtectionStatus);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                checkNoteProtectionStatus();
+            }
+        });
+    }
 
     // 安全提示模态框
     const securityInfoBtn = document.getElementById('security-info-btn');
@@ -320,6 +338,8 @@ document.addEventListener('DOMContentLoaded', (event) => {
             if (settingsContentInput) {
                 settingsContentInput.value = contentInput.value;
             }
+
+            window.noteDirty = true;
             
             saveTimeout = setTimeout(autoSave, 1000);
         });
@@ -521,7 +541,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
     let previewAbortController = null;
 
     // 更新预览内容 - 使用前端 marked 库直接渲染
-    const updatePreview = debounce(function(content) {
+	    const updatePreview = debounce(function(content) {
         if (!content) {
             previewDiv.innerHTML = '';
             return;
@@ -569,7 +589,14 @@ document.addEventListener('DOMContentLoaded', (event) => {
             console.error('Markdown render error:', error);
             previewDiv.innerHTML = '<p style="color: red;">渲染错误</p>';
         }
-    }, 300);
+	    }, 300);
+
+        document.addEventListener('yonote:content-updated', (event) => {
+            const nextContent = event.detail && typeof event.detail.content === 'string'
+                ? event.detail.content
+                : '';
+            updatePreview(nextContent);
+        });
 
     // 添加代码块复制按钮
     function addCopyButton(preElement) {
@@ -784,6 +811,19 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
             showError = true;
         }
+    };
+
+    window.promptNotePasswordVerification = async (options = {}) => {
+        window.password = true;
+        window.authenticated = false;
+
+        const verified = await ensurePasswordVerified(true);
+        if (!verified) return false;
+
+        if (options.reload !== false) {
+            window.location.reload();
+        }
+        return true;
     };
 
     // 切换预览模式

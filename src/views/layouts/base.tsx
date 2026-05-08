@@ -33,22 +33,17 @@ export const BaseLayout: FC<PropsWithChildren<BaseLayoutProps>> = (props) => {
                     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js" defer></script>
                     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" defer></script>
                     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js" defer></script>
-                    {noteKey && (
-                        <script dangerouslySetInnerHTML={{
-                            __html: `
-                                window.authenticated = ${authenticated ? 'true' : 'false'};
-                                window.noteUpdatedAt = ${updatedAt || 0};
-                                window.noteKey = ${JSON.stringify(noteKey)};
-                                window.viewOnly = ${viewOnly ? 'true' : 'false'};
-                                window.password = ${hasPassword ? 'true' : 'false'};
-                                window.public = ${isPublic ? 'true' : 'false'};
-                            `
-                        }} />
-                    )}
                     <script src="/static/function.js" defer></script>
                     <script src="/static/app.js" defer></script>
                 </head>
-                <body>
+                <body
+                    data-authenticated={authenticated ? 'true' : 'false'}
+                    data-note-updated-at={updatedAt || 0}
+                    data-note-key={noteKey || ''}
+                    data-view-only={viewOnly ? 'true' : 'false'}
+                    data-password={hasPassword ? 'true' : 'false'}
+                    data-public={isPublic ? 'true' : 'false'}
+                >
                     {children}
                 </body>
             </html>
@@ -632,30 +627,7 @@ export const AdminLayout: FC<PropsWithChildren<{ title: string }>> = ({ title, c
                         }
                     `
                 }} />
-                <script dangerouslySetInnerHTML={{
-                    __html: `
-                        async function deleteEmptyNotes() {
-                            if (!confirm('确定要删除所有空笔记吗？此操作不可恢复！')) {
-                                return;
-                            }
-                            try {
-                                const response = await fetch('/admin/notes-empty', {
-                                    method: 'DELETE',
-                                    credentials: 'same-origin'
-                                });
-                                const data = await response.json();
-                                if (data.success) {
-                                    alert('成功删除 ' + data.deleted + ' 条空笔记');
-                                    location.reload();
-                                } else {
-                                    alert('删除失败');
-                                }
-                            } catch (error) {
-                                alert('删除失败: ' + error.message);
-                            }
-                        }
-                        `
-                    }} />
+                <script src="/static/admin.js" defer></script>
                 </head>
                 <body class="admin-page">
                     {children}
