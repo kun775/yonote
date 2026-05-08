@@ -106,6 +106,11 @@ adminRoutes.delete('/notes-empty', adminAuthMiddleware, async (c) => {
 });
 
 adminRoutes.get('/setup', async (c) => {
+    // 首次配置后必须登录才能访问此工具，避免成为 PBKDF2 计算 DoS 入口
+    if (c.env.ADMIN_PASSWORD && !(await isAdminAuthenticated(c))) {
+        return c.redirect('/admin');
+    }
+
     if (c.req.query('password')) {
         return c.text('请改用表单提交密码，避免通过 URL 传递敏感信息', 400);
     }
@@ -140,6 +145,10 @@ adminRoutes.get('/setup', async (c) => {
 });
 
 adminRoutes.post('/setup', async (c) => {
+    if (c.env.ADMIN_PASSWORD && !(await isAdminAuthenticated(c))) {
+        return c.redirect('/admin');
+    }
+
     const formData = await c.req.parseBody();
     const password = formData['password'] as string || '';
 

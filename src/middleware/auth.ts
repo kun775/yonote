@@ -5,9 +5,36 @@ import type { AppEnv } from '../types';
 const AUTH_COOKIE_NAME = 'yonote_auth';
 const AUTH_COOKIE_MAX_AGE = 7 * 24 * 3600; // 7天滑动过期
 const AUTH_COOKIE_VERSION = 'v1';
+const AUTH_COOKIE_MAX_ENTRIES = 50;
 
 interface AuthData {
     keys: Record<string, boolean | string>;
+    order?: string[];
+}
+
+function pruneAuthData(data: AuthData, limit: number = AUTH_COOKIE_MAX_ENTRIES): AuthData {
+    const entries = Array.isArray(data.order) ? data.order.filter((key) => key in data.keys) : [];
+    for (const key of Object.keys(data.keys)) {
+        if (!entries.includes(key)) {
+            entries.push(key);
+        }
+    }
+    while (entries.length > limit) {
+        const oldest = entries.shift();
+        if (oldest) {
+            delete data.keys[oldest];
+        }
+    }
+    data.order = entries;
+    return data;
+}
+
+function touchAuthEntry(data: AuthData, key: string): void {
+    if (!Array.isArray(data.order)) {
+        data.order = [];
+    }
+    data.order = data.order.filter((entry) => entry !== key);
+    data.order.push(key);
 }
 
 function base64Encode(buffer: Uint8Array): string {
@@ -140,6 +167,8 @@ export async function setAuthenticated(c: Context<AppEnv>, key: string, password
     data.keys[key] = passwordHash
         ? await createNoteAuthToken(key, passwordHash, secret)
         : true;
+    touchAuthEntry(data, key);
+    pruneAuthData(data);
 
     setCookie(c, AUTH_COOKIE_NAME, await encodeAuthCookie(data, secret), {
         httpOnly: true,
@@ -155,6 +184,9 @@ export async function removeAuthentication(c: Context<AppEnv>, key: string): Pro
     const cookie = getCookie(c, AUTH_COOKIE_NAME);
     const data = await decodeAuthCookie(cookie, secret);
     delete data.keys[key];
+    if (Array.isArray(data.order)) {
+        data.order = data.order.filter((entry) => entry !== key);
+    }
 
     if (Object.keys(data.keys).length === 0) {
         deleteCookie(c, AUTH_COOKIE_NAME);
