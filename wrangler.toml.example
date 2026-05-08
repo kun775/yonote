@@ -1,0 +1,33 @@
+name = "yonote"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 数据库配置
+# 先执行：wrangler d1 create yonote-db
+# 然后将返回的 database_id 填到下方。
+[[d1_databases]]
+binding = "DB"
+database_name = "yonote-db"
+database_id = "<YOUR_D1_DATABASE_ID>"
+
+# 环境变量（非敏感配置）
+[vars]
+ENVIRONMENT = "development"
+
+# 静态资源配置
+[assets]
+directory = "./public"
+
+# 生产环境配置
+[env.production]
+name = "yonote"
+vars = { ENVIRONMENT = "production" }
+
+# 生产环境 D1 绑定。
+# 如果生产环境使用同一个数据库，可填同一个 database_id；
+# 如果生产环境使用独立数据库，请填生产库的 database_id。
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "yonote-db"
+database_id = "<YOUR_PRODUCTION_D1_DATABASE_ID>"
