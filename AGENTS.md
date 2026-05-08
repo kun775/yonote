@@ -76,5 +76,5 @@ node scripts/generate-password-hash.js <password>
 - UI/模板改动（`src/views/` 或 `public/static/`）需附截图。
 
 ## 安全与配置提示
-- 不要提交真实密钥。使用 `.dev.vars` 保存本地专用变量，生产环境使用 `wrangler secret put ...` 设置（`ENCRYPTION_KEY`、`ADMIN_PASSWORD`）。
-- 如果部署看起来未生效，参考 `CACHE_PURGE.md` 处理 Cloudflare 缓存清理。
+- 不要提交真实密钥。使用 `.dev.vars` 保存本地专用变量（见 `.dev.vars.example`），生产环境使用 `wrangler secret put ...` 设置（`ENCRYPTION_KEY`、`AUTH_SECRET`、`ADMIN_PASSWORD`）。
+- 生产密钥必须与本地 `.dev.vars` 中的值不同，且三者互相独立。

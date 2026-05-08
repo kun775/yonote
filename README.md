@@ -30,10 +30,10 @@ npm install
 ### 2. 创建 D1 数据库
 
 ```bash
-wrangler d1 create yonote
+wrangler d1 create yonote-db
 ```
 
-将返回的 database_id 更新到 `wrangler.toml`。
+将返回的 `database_id` 更新到 `wrangler.toml`（`database_name` 必须是 `yonote-db`，与 `wrangler.toml` 和 npm scripts 保持一致）。
 
 ### 3. 初始化数据库
 
@@ -43,15 +43,18 @@ npm run db:init
 
 ### 4. 设置 Secrets
 
+> 三个密钥必须彼此独立且不要复用本地开发值。生产应重新生成。
+
 ```bash
-# 设置加密密钥
+# 内容加密密钥（建议 32+ 字节随机值，例如 openssl rand -base64 32）
 wrangler secret put ENCRYPTION_KEY
 
-# 设置认证 Cookie 签名密钥（建议使用独立随机字符串，不要与 ENCRYPTION_KEY 相同）
+# 认证 Cookie 签名密钥（必须与 ENCRYPTION_KEY 使用不同的随机值）
 wrangler secret put AUTH_SECRET
 
-# 生成管理员密码哈希
-# 访问 /admin/setup 使用表单提交密码获取哈希值
+# 管理员密码哈希
+# 推荐方式：本地运行 `node scripts/generate-password-hash.js <password>` 取回哈希
+# 部署后也可以在 /admin/setup 表单生成，但只有在 ADMIN_PASSWORD 尚未设置时才能匿名访问
 wrangler secret put ADMIN_PASSWORD
 ```
 
@@ -75,10 +78,12 @@ npm run dev
 
 访问 `/admin` 进入管理后台。
 
-首次使用需要设置管理员密码：
-1. 访问 `/admin/setup`
-2. 通过表单提交管理员密码，复制返回的哈希值
-3. 运行 `wrangler secret put ADMIN_PASSWORD` 并粘贴哈希值
+首次使用需要设置管理员密码，推荐做法：
+
+1. 本地执行 `node scripts/generate-password-hash.js <password>` 生成哈希
+2. 运行 `wrangler secret put ADMIN_PASSWORD` 并粘贴哈希值
+
+也可以在刚部署、尚未配置 `ADMIN_PASSWORD` 的情况下，匿名访问 `/admin/setup` 用表单生成哈希。一旦 `ADMIN_PASSWORD` 设置完成，该路径就要求管理员登录后才能访问，防止成为 PBKDF2 计算的 DoS 入口。
 
 ## API 接口
 

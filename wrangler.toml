@@ -20,3 +20,10 @@ directory = "./public"
 # 生产环境配置
 [env.production]
 vars = { ENVIRONMENT = "production" }
+
+# 生产环境 D1 绑定
+# Wrangler v3+ 环境配置不继承顶层 bindings，必须在环境块下显式声明
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "yonote-db"
+database_id = "7c2973fc-39d6-486e-99e1-aef639e7774d"
