@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 
 import { verifyPassword } from '../src/services/crypto.ts';
+import { MemoryD1 } from './helpers/memory-d1.mjs';
 
 async function loadApiRoutes() {
     const result = await build({
@@ -20,95 +21,6 @@ async function loadApiRoutes() {
 }
 
 const { apiRoutes } = await loadApiRoutes();
-
-class MemoryStatement {
-    constructor(db, sql) {
-        this.db = db;
-        this.sql = sql;
-        this.values = [];
-    }
-
-    bind(...values) {
-        this.values = values;
-        return this;
-    }
-
-    async first() {
-        if (this.sql.includes('SELECT * FROM notes WHERE key = ?')) {
-            return this.db.notes.get(this.values[0]) || null;
-        }
-        if (this.sql.includes('SELECT * FROM lockouts WHERE ip = ? AND note_key = ?')) {
-            return this.db.lockouts.get(`${this.values[0]}:${this.values[1]}`) || null;
-        }
-        return null;
-    }
-
-    async run() {
-        if (this.sql.includes('INSERT INTO notes')) {
-            const [key, content, createdAt, updatedAt] = this.values;
-            this.db.notes.set(key, {
-                id: this.db.nextId++,
-                key,
-                content,
-                password: null,
-                public: 0,
-                encrypted: 0,
-                created_at: createdAt,
-                updated_at: updatedAt
-            });
-            return { meta: { changes: 1 } };
-        }
-
-        if (this.sql.includes('UPDATE notes SET')) {
-            const key = this.values[this.values.length - 1];
-            const note = this.db.notes.get(key);
-            if (!note) return { meta: { changes: 0 } };
-
-            const assignments = this.sql
-                .slice(this.sql.indexOf('SET') + 3, this.sql.indexOf('WHERE'))
-                .split(',')
-                .map((item) => item.trim().split(' = ')[0]);
-
-            assignments.forEach((field, index) => {
-                note[field] = this.values[index];
-            });
-            return { meta: { changes: 1 } };
-        }
-
-        if (this.sql.includes('INSERT INTO lockouts')) {
-            const [ip, noteKey, attempts, lockedUntil, createdAt] = this.values;
-            this.db.lockouts.set(`${ip}:${noteKey}`, {
-                id: this.db.nextLockoutId++,
-                ip,
-                note_key: noteKey,
-                attempts,
-                locked_until: lockedUntil,
-                created_at: createdAt
-            });
-            return { meta: { changes: 1 } };
-        }
-
-        if (this.sql.includes('DELETE FROM lockouts WHERE ip = ? AND note_key = ?')) {
-            this.db.lockouts.delete(`${this.values[0]}:${this.values[1]}`);
-            return { meta: { changes: 1 } };
-        }
-
-        return { meta: { changes: 0 } };
-    }
-}
-
-class MemoryD1 {
-    constructor() {
-        this.notes = new Map();
-        this.lockouts = new Map();
-        this.nextId = 1;
-        this.nextLockoutId = 1;
-    }
-
-    prepare(sql) {
-        return new MemoryStatement(this, sql);
-    }
-}
 
 function createEnv() {
     return {
