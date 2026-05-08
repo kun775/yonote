@@ -1,193 +1,129 @@
-# YoNote
+# YoNote Worker
 
-[English](./README_EN.md) | 简体中文
+YoNote 的 Cloudflare Workers 版本 - 轻量级 Markdown 笔记应用。
 
-一个轻量级的在线 Markdown 笔记应用，支持实时预览、自动保存、密码保护和内容加密。
+## 功能
 
-## 功能特性
-
-- **即时创建**: 无需注册，访问即可创建笔记
-- **实时预览**: 左右分栏编辑/预览 (PC)，切换模式 (移动端)
-- **自动保存**: 输入停止 1 秒后自动保存
-- **Markdown 增强**: 支持任务列表、脚注、高亮、上标/下标
-- **代码高亮**: 支持多种编程语言语法高亮
-- **数学公式**: 支持 KaTeX/MathJax 数学公式渲染
-- **密码保护**: 可设置密码保护笔记
-- **内容加密**: 使用 Fernet (AES) 加密存储
-- **响应式设计**: 适配桌面和移动设备
-
-## 部署方式
-
-YoNote 支持两种部署方式：
-
-| 方式 | 说明 | 适用场景 |
-|------|------|----------|
-| **Flask 版本** | Python + SQLite | 传统服务器、Docker 部署 |
-| **Worker 版本** | Cloudflare Workers + D1 | Serverless、边缘计算 |
-
-> Worker 版本部署指南请参考 [worker/README.md](./worker/README.md)
+- ✅ Markdown 实时预览
+- ✅ 自动保存
+- ✅ 密码保护
+- ✅ 公开/私有笔记
+- ✅ 内容加密存储
+- ✅ 速率限制
+- ✅ 管理后台
 
 ## 技术栈
 
-### Flask 版本
+- **运行时**: Cloudflare Workers
+- **框架**: Hono
+- **数据库**: D1 (SQLite)
+- **加密**: Web Crypto API (AES-GCM)
 
-| 层级 | 技术 |
-|------|------|
-| 后端框架 | Flask 2.0.1 |
-| 数据库 | SQLite 3 |
-| 加密 | Fernet (PBKDF2HMAC + AES) |
-| XSS 防护 | bleach (HTML 清理) |
-| Markdown | Python-Markdown + pymdown-extensions |
-| 前端渲染 | Marked.js, KaTeX, Highlight.js |
-| 容器化 | Docker + Supervisor |
+## 部署
 
-### Worker 版本
-
-| 层级 | 技术 |
-|------|------|
-| 运行时 | Cloudflare Workers |
-| 框架 | Hono |
-| 数据库 | D1 (SQLite) |
-| 加密 | Web Crypto API (AES-GCM) |
-
-## 快速开始
-
-### 本地开发
+### 1. 安装依赖
 
 ```bash
-# 克隆仓库
-git clone https://github.com/kun775/yonote.git
-cd yonote
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 运行开发服务器
-python app.py
-# 服务运行在 http://localhost:5005
-```
-
-### Docker 部署
-
-```bash
-# 构建并启动
-docker-compose up -d
-
-# 查看日志
-docker logs -f yonote
-```
-
-### Cloudflare Workers 部署
-
-```bash
-cd worker
-
-# 安装依赖
 npm install
+```
 
-# 创建 D1 数据库
+### 2. 创建 D1 数据库
+
+```bash
 wrangler d1 create yonote
+```
 
-# 初始化数据库
+将返回的 database_id 更新到 `wrangler.toml`。
+
+### 3. 初始化数据库
+
+```bash
 npm run db:init
+```
 
-# 部署
+### 4. 设置 Secrets
+
+```bash
+# 设置加密密钥
+wrangler secret put ENCRYPTION_KEY
+
+# 生成管理员密码哈希
+# 访问 /admin/setup 使用表单提交密码获取哈希值
+wrangler secret put ADMIN_PASSWORD
+```
+
+### 5. 部署
+
+```bash
 npm run deploy
 ```
 
-详细步骤请参考 [Worker 部署文档](./worker/README.md)。
+## 本地开发
 
-## 环境变量
+```bash
+# 初始化本地数据库
+npm run db:init:local
 
-| 变量名 | 说明 | 默认值 |
-|--------|------|--------|
-| `SECRET_KEY` | Flask 会话密钥 | `dev_key_please_change` |
-| `ENCRYPTION_KEY` | 笔记加密密钥 | (请修改默认值) |
-| `ENCRYPTION_SALT` | 加密盐值 | (请修改默认值) |
+# 启动开发服务器
+npm run dev
+```
 
-> 生产环境请务必修改以上默认值
+## 管理后台
 
-## API 接口
+访问 `/admin` 进入管理后台。
 
-| 路由 | 方法 | 功能 |
-|------|------|------|
-| `/` | GET | 创建新笔记并重定向 |
-| `/<key>` | GET | 查看/编辑笔记 |
-| `/<key>/update` | POST | 更新笔记内容和设置 |
-| `/<key>/auto-save` | POST | 自动保存 (JSON) |
-| `/<key>/verify` | POST | 验证笔记密码 |
-| `/<key>/delete` | GET | 删除笔记 |
-| `/<key>/download` | GET | 下载笔记为 txt |
-| `/render-markdown` | POST | 服务端 Markdown 渲染 |
+首次使用需要设置管理员密码：
+1. 访问 `/admin/setup`
+2. 通过表单提交管理员密码，复制返回的哈希值
+3. 运行 `wrangler secret put ADMIN_PASSWORD` 并粘贴哈希值
 
-## 安全机制
+## 测试
 
-- **内容加密**: 使用 Fernet 对笔记内容进行 AES 加密存储
-- **密码保护**: 笔记可设置 SHA256 哈希密码
-- **访问控制**: 三种模式 - 公开、受保护公开、私有
-- **暴力破解防护**: 5 次错误锁定 30 分钟
-- **速率限制**: 每日 2,000,000 / 每小时 50,000 请求上限
-- **XSS 防护**: 使用 bleach 库清理 HTML 输出
+```bash
+npm test
+```
 
 ## 项目结构
 
 ```
-yonote/
-├── app.py                    # Flask 主应用
-├── config.py                 # 配置类
-├── requirements.txt          # Python 依赖
-├── Dockerfile                # Docker 构建文件
-├── docker-compose.yml        # Docker Compose 配置
-├── templates/
-│   ├── view.html             # 笔记主视图模板
-│   └── password.html         # 密码验证页面
-├── static/
-│   ├── app.js                # 前端主逻辑
-│   ├── function.js           # 工具函数
-│   └── style.css             # 样式表
-├── data/
-│   └── notes.db              # SQLite 数据库
-└── worker/                   # Cloudflare Workers 版本
-    ├── src/                  # 源代码
-    ├── wrangler.toml         # Wrangler 配置
-    └── README.md             # Worker 部署文档
+.
+├── src/
+│   ├── index.ts              # 入口文件
+│   ├── types.ts              # 类型定义
+│   ├── routes/
+│   │   ├── note.tsx          # 笔记路由
+│   │   ├── api.ts            # API 路由
+│   │   └── admin.tsx         # 管理后台路由
+│   ├── middleware/
+│   │   ├── auth.ts           # 认证中间件
+│   │   ├── rateLimit.ts      # 速率限制
+│   │   └── session.ts        # 会话管理
+│   ├── services/
+│   │   ├── crypto.ts         # 加密服务
+│   │   └── pdf.ts            # PDF 服务
+│   ├── db/
+│   │   ├── schema.sql        # 数据库 Schema
+│   │   └── queries.ts        # 数据库查询
+│   ├── views/
+│   │   ├── layouts/
+│   │   │   └── base.tsx      # 基础布局
+│   │   ├── note/
+│   │   │   ├── view.tsx      # 笔记视图
+│   │   │   └── password.tsx  # 密码页面
+│   │   └── admin/
+│   │       ├── login.tsx     # 管理登录
+│   │       ├── dashboard.tsx # 管理面板
+│   │       └── notes.tsx     # 笔记管理
+│   └── utils/
+│       ├── time.ts           # 时间工具
+│       └── validation.ts     # 验证工具
+├── public/                   # Wrangler 静态资源
+├── scripts/                  # 工具脚本
+├── tests/                    # Node 测试
+├── wrangler.toml             # Wrangler 配置
+└── package.json
 ```
-
-## 开发指南
-
-### 代码检查
-
-```bash
-# 安装 Ruff
-pip install ruff
-
-# 代码检查
-ruff check .
-
-# 格式检查
-ruff format --check .
-
-# 自动修复
-ruff check --fix .
-```
-
-### 编码规范
-
-- **Python**: 遵循 PEP 8，使用中文注释
-- **JavaScript**: ES6+ 语法，使用 `const`/`let`
-- **CSS**: BEM 命名风格，响应式优先
-
-## CI/CD
-
-项目使用 GitHub Actions 实现自动化：
-
-- **CI 流程**: 代码检查 (Ruff)、安全扫描 (Bandit/Safety)、测试 (pytest)
-- **Docker 流程**: 自动构建并推送到 GitHub Container Registry
 
 ## 许可证
 
-MIT License
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
+MIT
