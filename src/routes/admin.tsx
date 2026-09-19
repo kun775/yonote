@@ -5,32 +5,44 @@ import { decryptContent, hashPassword } from '../services/crypto';
 import { isAdminAuthenticated, createAdminSession, destroyAdminSession, verifyAdminPassword } from '../middleware/session';
 import { adminAuthMiddleware } from '../middleware/session';
 import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from '../middleware/rateLimit';
+import { AUTH_MODE_PASSWORD, getAuthPolicy } from '../services/authPolicy';
 import { AdminLoginPage } from '../views/admin/login';
 import { DashboardPage } from '../views/admin/dashboard';
 import { NotesListPage, NoteDetailPage } from '../views/admin/notes';
+import { ssoRoutes } from './sso';
 
 export const adminRoutes = new Hono<AppEnv>();
 const ADMIN_LOGIN_LOCKOUT_KEY = '__admin__';
 
+// dex 单点登录入口：登录前必须可访问，且不受 adminAuthMiddleware 约束
+adminRoutes.route('/sso', ssoRoutes);
+
 adminRoutes.get('/', async (c) => {
-    const isAuth = await isAdminAuthenticated(c);
-    if (isAuth) {
+    const policy = getAuthPolicy(c.env);
+
+    if (await isAdminAuthenticated(c)) {
         return c.redirect('/admin/dashboard');
     }
-    return c.html(<AdminLoginPage />);
+    return c.html(<AdminLoginPage policy={policy} errorCode={c.req.query('error')} />);
 });
 
 adminRoutes.post('/login', async (c) => {
+    const policy = getAuthPolicy(c.env);
     const formData = await c.req.parseBody();
     const password = formData['password'] as string || '';
 
+    // 密码入口被关闭时直接拒绝，不保留任何绕过路径
+    if (!policy.passwordSwitchOn) {
+        return c.html(<AdminLoginPage policy={policy} error="密码登录入口已关闭" />, 403);
+    }
+
     if (!c.env.ADMIN_PASSWORD) {
-        return c.html(<AdminLoginPage error="管理密码未配置" />);
+        return c.html(<AdminLoginPage policy={policy} error="管理密码未配置" />);
     }
 
     const lockoutStatus = await isLockedOut(c, ADMIN_LOGIN_LOCKOUT_KEY);
     if (lockoutStatus.locked) {
-        return c.html(<AdminLoginPage error={`登录失败次数过多，请等待${lockoutStatus.remaining}秒后再试`} />);
+        return c.html(<AdminLoginPage policy={policy} error={`登录失败次数过多，请等待${lockoutStatus.remaining}秒后再试`} />);
     }
 
     const isValid = await verifyAdminPassword(password, c.env.ADMIN_PASSWORD);
@@ -38,7 +50,7 @@ adminRoutes.post('/login', async (c) => {
     if (isValid) {
         await clearFailedAttempts(c, ADMIN_LOGIN_LOCKOUT_KEY);
         await cleanExpiredSessions(c.env.DB);
-        await createAdminSession(c);
+        await createAdminSession(c, AUTH_MODE_PASSWORD);
         return c.redirect('/admin/dashboard');
     }
 
@@ -46,7 +58,7 @@ adminRoutes.post('/login', async (c) => {
     const error = result.locked
         ? '登录失败次数过多，请等待30分钟后再试'
         : `密码错误，还有${result.attemptsRemaining}次尝试机会`;
-    return c.html(<AdminLoginPage error={error} />);
+    return c.html(<AdminLoginPage policy={policy} error={error} />);
 });
 
 adminRoutes.post('/logout', async (c) => {

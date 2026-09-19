@@ -14,3 +14,9 @@ AUTH_SECRET=please-replace-with-another-local-random-value
 # 管理员密码的 PBKDF2 哈希
 # 生成命令：node scripts/generate-password-hash.js <password>
 ADMIN_PASSWORD=pbkdf2$100000$PLEASE-GENERATE-YOUR-OWN-HASH
+
+# dex 单点登录的机密客户端密钥（与 dex 侧 staticClients.secret 保持一致）
+# 留空则不启用 dex 入口；此时密码登录开关 PASSWORD_ENABLED 必须为 true，否则禁止登录
+# 注：本地调试 dex 登录需先把 http://localhost:8787/admin/sso/callback
+#     补进该 client 的 redirectURIs（生产回调已登记，本地回调尚未登记）
+DEX_CLIENT_SECRET=please-replace-with-the-dex-client-secret

@@ -2,6 +2,7 @@ name = "yonote"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
+keep_vars = true
 
 # D1 数据库配置
 [[d1_databases]]
@@ -9,17 +10,65 @@ binding = "DB"
 database_name = "yonote-db"
 database_id = "7c2973fc-39d6-486e-99e1-aef639e7774d"
 
+# 自定义域路由。
+# 线上（Dashboard 侧）已有这条路由，若配置文件里缺失，每次部署都会触发
+# 「local configuration differs from remote configuration」告警（routes 是破坏性差异）。
+# 写进配置即让本地与远端一致，告警的 routes 部分随之消失。
+[[routes]]
+pattern = "note.ikun.day"
+zone_name = "ikun.day"
+custom_domain = true
+
 # 环境变量（开发环境）
+# keep_vars = true 的作用：阻止「用本地配置覆盖 Dashboard 上已有的同名变量」，
+# 并让远端独有（本地未声明）的 plain_text / json 绑定在部署时不被删除。
+# 注意：它**只管 vars**，管不了 routes / 绑定，也不会抑制部署时的配置差异告警。
+# 同名键的最终优先级官方未明确写死（底层是上传元数据 keep_bindings），
+# 因此实务约定：**改开关 / 客户端 ID 时，本文件与 Dashboard 两处必须一致**，不要依赖谁赢。
 [vars]
 ENVIRONMENT = "development"
+
+# 管理后台密码登录开关。与 dex 单点登录互相独立，两者都为 false 时禁止登录。
+PASSWORD_ENABLED = "false"
+
+# dex 单点登录（issuer 必须带 /dex 前缀，否则 id_token 的 iss 校验会失败）
+DEX_ISSUER = "https://auth.zkun.de/dex"
+# 2026-09-19 实测：dex 侧已登记此 client_id，且已登记生产回调；yonote 这个名字并不存在
+DEX_CLIENT_ID = "note-ikun-day"
+
+# 回调地址：留空时按请求域名推导为 https://<请求域名>/admin/sso/callback
+# 反向代理或自定义域名与请求域名不一致时才需要显式指定。
+# DEX_REDIRECT_URI = "https://note.ikun.day/admin/sso/callback"
+
+# 管理员白名单。优先使用不可变 sub（DEX_ALLOWED_SUBS）；
+# DEX_ALLOWED_USERS 匹配 preferred_username，DEX_ALLOWED_EMAILS 仅在 email_verified 为真时生效。
+# 三个都为空时 dex 入口不会渲染（避免出现必然失败的登录按钮）。
+# DEX_ALLOWED_SUBS = ""
+DEX_ALLOWED_USERS = "dex_vita"
+DEX_ALLOWED_EMAILS = "vita@zkun.de"
+
+# DEX_CLIENT_SECRET 属于机密值，不要写入本文件：
+#   wrangler secret put DEX_CLIENT_SECRET
+# 删除该 secret 即可关闭 dex 入口（入口自动消失，无需改代码）。
 
 # 静态资源配置
 [assets]
 directory = "./public"
 
 # 生产环境配置
-[env.production]
-vars = { ENVIRONMENT = "production" }
+[env.production.vars]
+ENVIRONMENT = "production"
+PASSWORD_ENABLED = "true"
+DEX_ISSUER = "https://auth.zkun.de/dex"
+DEX_CLIENT_ID = "note-ikun-day"
+DEX_ALLOWED_USERS = "dex_vita"
+DEX_ALLOWED_EMAILS = "vita@zkun.de"
+
+# 生产环境自定义域路由（与顶层保持一致）
+[[env.production.routes]]
+pattern = "note.ikun.day"
+zone_name = "ikun.day"
+custom_domain = true
 
 # 生产环境 D1 绑定
 # Wrangler v3+ 环境配置不继承顶层 bindings，必须在环境块下显式声明

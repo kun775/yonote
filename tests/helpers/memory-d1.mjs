@@ -4,6 +4,7 @@
 //   - notes (SELECT/INSERT/UPDATE/DELETE)
 //   - lockouts (SELECT/INSERT ON CONFLICT/DELETE)
 //   - rate_limits (SELECT/INSERT ON CONFLICT/UPDATE)
+//   - admin_sessions (SELECT/INSERT/DELETE)
 //
 // Unknown statements default to { meta: { changes: 0 } } for safe no-ops.
 
@@ -30,6 +31,11 @@ class MemoryStatement {
         }
         if (sql.includes('SELECT count, reset_at FROM rate_limits WHERE ip = ? AND bucket = ?')) {
             return db.rateLimits.get(`${values[0]}:${values[1]}`) || null;
+        }
+        if (sql.includes('SELECT * FROM admin_sessions WHERE token = ?')) {
+            const session = db.adminSessions.get(values[0]);
+            if (!session) return null;
+            return session.expires_at > values[1] ? session : null;
         }
         return null;
     }
@@ -116,6 +122,33 @@ class MemoryStatement {
             return { meta: { changes: record ? 1 : 0 } };
         }
 
+        if (sql.includes('INSERT INTO admin_sessions')) {
+            const [token, createdAt, expiresAt] = values;
+            db.adminSessions.set(token, {
+                id: db.nextSessionId++,
+                token,
+                created_at: createdAt,
+                expires_at: expiresAt
+            });
+            return { meta: { changes: 1 } };
+        }
+
+        if (sql.includes('DELETE FROM admin_sessions WHERE token = ?')) {
+            db.adminSessions.delete(values[0]);
+            return { meta: { changes: 1 } };
+        }
+
+        if (sql.includes('DELETE FROM admin_sessions WHERE expires_at')) {
+            let changes = 0;
+            for (const [token, session] of db.adminSessions) {
+                if (session.expires_at < values[0]) {
+                    db.adminSessions.delete(token);
+                    changes += 1;
+                }
+            }
+            return { meta: { changes } };
+        }
+
         return { meta: { changes: 0 } };
     }
 }
@@ -125,8 +158,10 @@ export class MemoryD1 {
         this.notes = new Map();
         this.lockouts = new Map();
         this.rateLimits = new Map();
+        this.adminSessions = new Map();
         this.nextId = 1;
         this.nextLockoutId = 1;
+        this.nextSessionId = 1;
     }
 
     prepare(sql) {

@@ -12,14 +12,31 @@ database_name = "yonote-db"
 database_id = "<YOUR_D1_DATABASE_ID>"
 
 # 环境变量（非敏感配置）
+# 若本机设置了 keep_vars = true，则以 Dashboard 上的变量为准，本段同名键不生效 —— 两处必须保持一致。
 [vars]
 ENVIRONMENT = "development"
+
+# 管理后台密码登录开关。与 dex 单点登录互相独立，两者都为 false 时禁止登录。
+PASSWORD_ENABLED = "true"
+
+# dex 单点登录（issuer 必须带 /dex 前缀，否则 id_token 的 iss 校验会失败）
+DEX_ISSUER = "https://auth.zkun.de/dex"
+# client_id 不要按项目名或域名惯例猜：先用 /dex/auth 探测 dex 侧是否已登记，
+# 并跟到 /dex/auth/<connector> 才能看到真实结果（/dex/auth 本身不校验 client_id）。
+DEX_CLIENT_ID = "<YOUR_DEX_CLIENT_ID>"
+# 回调地址：留空时按请求域名推导为 https://<请求域名>/admin/sso/callback
+# DEX_REDIRECT_URI = "https://<your-domain>/admin/sso/callback"
+# 管理员白名单，三个都为空时 dex 入口不会渲染。优先用不可变 sub。
+# DEX_ALLOWED_SUBS = "<YOUR_DEX_SUB>"
+DEX_ALLOWED_USERS = "<YOUR_DEX_USERNAME>"
+DEX_ALLOWED_EMAILS = "<YOUR_EMAIL>"
 
 # 敏感配置不要写入 wrangler.toml。
 # 本地开发写入 .dev.vars，生产环境使用 wrangler secret put：
 # ENCRYPTION_KEY=<内容加密密钥>
 # AUTH_SECRET=<认证 Cookie 签名密钥，必须独立于 ENCRYPTION_KEY>
 # ADMIN_PASSWORD=<管理员密码哈希>
+# DEX_CLIENT_SECRET=<dex 机密客户端密钥；删除它即可关闭 dex 入口>
 
 # 静态资源配置
 [assets]
@@ -28,7 +45,14 @@ directory = "./public"
 # 生产环境配置
 [env.production]
 name = "yonote"
-vars = { ENVIRONMENT = "production" }
+
+[env.production.vars]
+ENVIRONMENT = "production"
+PASSWORD_ENABLED = "true"
+DEX_ISSUER = "https://auth.zkun.de/dex"
+DEX_CLIENT_ID = "<YOUR_DEX_CLIENT_ID>"
+DEX_ALLOWED_USERS = "<YOUR_DEX_USERNAME>"
+DEX_ALLOWED_EMAILS = "<YOUR_EMAIL>"
 
 # 生产环境 D1 绑定。
 # 如果生产环境使用同一个数据库，可填同一个 database_id；
