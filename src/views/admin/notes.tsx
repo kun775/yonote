@@ -1,5 +1,5 @@
 import type { FC } from 'hono/jsx';
-import { AdminLayout } from '../layouts/base';
+import { AdminLayout, AdminShell } from '../layouts/base';
 import type { PaginatedNotes, Note } from '../../db/queries';
 import { timeAgo } from '../../utils/time';
 
@@ -12,28 +12,12 @@ interface NotesListPageProps {
 export const NotesListPage: FC<NotesListPageProps> = ({ notes, search, filter }) => {
     return (
         <AdminLayout title="笔记管理">
-            <div class="admin-container">
-                <div class="admin-header">
-                    <div class="admin-title-group">
-                        <div class="admin-kicker">NOTES</div>
-                        <h1>笔记管理</h1>
-                        <p class="admin-subtitle">检索、筛选和处理所有笔记记录。</p>
-                    </div>
-                    <nav class="admin-nav">
-                        <a href="/admin/dashboard">
-                            <i class="fas fa-tachometer-alt"></i> 仪表盘
-                        </a>
-                        <a href="/admin/notes" class="active">
-                            <i class="fas fa-sticky-note"></i> 笔记管理
-                        </a>
-                        <form action="/admin/logout" method="post" class="admin-nav-form">
-                            <button type="submit" class="btn small">
-                                <i class="fas fa-sign-out-alt"></i> 退出
-                            </button>
-                        </form>
-                    </nav>
-                </div>
-
+            <AdminShell
+                kicker="NOTES"
+                title="笔记管理"
+                subtitle="检索、筛选和处理所有笔记记录。"
+                active="notes"
+            >
                 <form class="search-bar" method="get" action="/admin/notes">
                     <input
                         type="text"
@@ -139,7 +123,7 @@ export const NotesListPage: FC<NotesListPageProps> = ({ notes, search, filter })
                 <p class="list-summary">
                     共 {notes.total} 条笔记，当前第 {notes.page} 页，共 {notes.totalPages} 页
                 </p>
-            </div>
+            </AdminShell>
         </AdminLayout>
     );
 };
@@ -151,23 +135,22 @@ interface NoteDetailPageProps {
 export const NoteDetailPage: FC<NoteDetailPageProps> = ({ note }) => {
     return (
         <AdminLayout title={`笔记详情 - ${note.key}`}>
-            <div class="admin-container">
-                <div class="admin-header">
-                    <div class="admin-title-group">
-                        <div class="admin-kicker">NOTE DETAIL</div>
-                        <h1>笔记详情: {note.key}</h1>
-                        <p class="admin-subtitle">查看笔记状态、加密情况和内容预览。</p>
-                    </div>
-                    <nav class="admin-nav">
-                        <a href="/admin/notes">
+            <AdminShell
+                kicker="NOTE DETAIL"
+                title={`笔记详情: ${note.key}`}
+                subtitle="查看笔记状态、加密情况和内容预览。"
+                active="notes"
+                actions={
+                    <>
+                        <a href="/admin/notes" class="btn small">
                             <i class="fas fa-arrow-left"></i> 返回列表
                         </a>
-                        <a href={`/${note.key}`} target="_blank">
+                        <a href={`/${note.key}`} target="_blank" class="btn small">
                             <i class="fas fa-external-link-alt"></i> 查看笔记
                         </a>
-                    </nav>
-                </div>
-
+                    </>
+                }
+            >
                 <div class="stats-grid">
                     <div class="stat-card">
                         <h3>状态</h3>
@@ -214,7 +197,7 @@ export const NoteDetailPage: FC<NoteDetailPageProps> = ({ note }) => {
                         <i class="fas fa-trash"></i> 删除笔记
                     </button>
                 </div>
-            </div>
+            </AdminShell>
         </AdminLayout>
     );
 };

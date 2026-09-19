@@ -1,5 +1,5 @@
 import type { FC } from 'hono/jsx';
-import { AdminLayout } from '../layouts/base';
+import { AdminLayout, AdminShell } from '../layouts/base';
 import type { Stats } from '../../db/queries';
 import { timeAgo } from '../../utils/time';
 
@@ -10,28 +10,12 @@ interface DashboardPageProps {
 export const DashboardPage: FC<DashboardPageProps> = ({ stats }) => {
     return (
         <AdminLayout title="仪表盘">
-            <div class="admin-container">
-                <div class="admin-header">
-                    <div class="admin-title-group">
-                        <div class="admin-kicker">YONOTE ADMIN</div>
-                        <h1>管理后台</h1>
-                        <p class="admin-subtitle">查看笔记状态、访问最近更新内容，并清理无效空笔记。</p>
-                    </div>
-                    <nav class="admin-nav">
-                        <a href="/admin/dashboard" class="active">
-                            <i class="fas fa-tachometer-alt"></i> 仪表盘
-                        </a>
-                        <a href="/admin/notes">
-                            <i class="fas fa-sticky-note"></i> 笔记管理
-                        </a>
-                        <form action="/admin/logout" method="post" class="admin-nav-form">
-                            <button type="submit" class="btn small">
-                                <i class="fas fa-sign-out-alt"></i> 退出
-                            </button>
-                        </form>
-                    </nav>
-                </div>
-
+            <AdminShell
+                kicker="YONOTE ADMIN"
+                title="管理后台"
+                subtitle="查看笔记状态、访问最近更新内容，并清理无效空笔记。"
+                active="dashboard"
+            >
                 <div class="stats-grid">
                     <div class="stat-card">
                         <h3>笔记总数</h3>
@@ -125,7 +109,7 @@ export const DashboardPage: FC<DashboardPageProps> = ({ stats }) => {
                         </table>
                     </div>
                 </section>
-            </div>
+            </AdminShell>
         </AdminLayout>
     );
 };
