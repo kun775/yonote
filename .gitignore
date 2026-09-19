@@ -3,6 +3,7 @@ node_modules/
 .dev.vars
 .ace-tool/
 .claude/
+.workbuddy/
 
 # Logs
 *.log
