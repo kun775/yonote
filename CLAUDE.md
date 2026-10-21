@@ -25,27 +25,30 @@ npm run dev                                # wrangler dev，默认 http://localh
 
 ### 请求入口与路由
 
-`src/index.ts` 统一加安全响应头（含 CSP）后按顺序挂载 `/api` → `/admin` → `/`（`noteRoutes` 的 `/:key` 是兜底路由，必须最后挂载）。静态资源由 `wrangler.toml` 的 `[assets]` 直接从 `public/` 提供，不经过 Hono。
+`src/index.ts` 统一加安全响应头（含 CSP）后按顺序挂载 `/api` → `/admin` → `/`（`noteRoutes` 的 `/:key` 是兜底路由，必须最后挂载）。默认导出是 `{ fetch, scheduled }`：`scheduled` 由 `wrangler.toml` 的 `[triggers]` 每小时触发，清理过期的会话、锁定和限流记录；Hono 实例另以具名导出 `app` 供测试使用。静态资源由 `wrangler.toml` 的 `[assets]` 直接从 `public/` 提供，不经过 Hono。
 
-- `src/routes/note.tsx`：浏览器端笔记页面与表单/AJAX 端点（`/:key/auto-save`、`/:key/update`、`/:key/verify`、`/:key/download` 等）。
+- `src/routes/note.tsx`：浏览器端笔记页面与表单/AJAX 端点（`/:key/auto-save`、`/:key/update`、`/:key/verify`、`/:key/download` 等）。所有 `/:key/:action` 子路由由同一个中间件先做 `isValidKey` 校验。
 - `src/routes/api.ts`：第三方 JSON API（`GET/POST /api/notes/:key`），笔记密码走 `x-admin-auth` 请求头。
 - `src/routes/admin.tsx` + `src/routes/sso.ts`：管理后台，`sso.ts` 挂在 `/admin/sso` 下。
 
 ### 笔记模型（跨多个文件的关键约定）
 
 - **惰性创建**：`GET /` 生成随机 key 后重定向；`GET /:key` 对不存在的笔记只渲染空编辑页、不写库，首次 `auto-save` / `update` 才 `createNote`。key 必须满足 `isValidKey`（`src/utils/validation.ts`）。
-- **内容加密**：写入时总是用 `ENCRYPTION_KEY` 做 AES-GCM 加密（每条内容随机 salt + IV，PBKDF2 派生密钥，见 `src/services/crypto.ts`），`notes.encrypted` 标记区分历史明文。更换 `ENCRYPTION_KEY` 会导致已有笔记无法解密。
+- **内容加密**：写入时总是用 `ENCRYPTION_KEY` 做 AES-GCM 加密（见 `src/services/crypto.ts`）。当前格式是 `v2:` + base64(salt|iv|密文)，用 HKDF 派生密钥；无前缀的历史密文按 PBKDF2 解密，下次写入时自动转成 v2。`notes.encrypted` 标记区分历史明文。更换 `ENCRYPTION_KEY` 会导致已有笔记无法解密。
 - **笔记密码**：存储格式 `pbkdf2$<iterations>$<salt>$<hash>`；旧的无前缀 SHA-256 hex 仍可校验，校验成功后自动升级为 PBKDF2（`isLegacyPasswordHash`）。
 - **可见性**：无密码 = 任何人可编辑；有密码 + `public=1` = 可读、编辑需密码；有密码 + `public=0` = 需密码才能看。
 - **浏览器授权**：`src/middleware/auth.ts` 用 `AUTH_SECRET` 做 HMAC 签名的 `yonote_auth` Cookie 记录已授权的 key（LRU 最多 50 个）。受保护笔记存的是 `HMAC(key:passwordHash)`，改密码会让旧授权自动失效。
-- **防滥用**（`src/middleware/rateLimit.ts`，状态都存在 D1）：同一 IP + key 密码错 5 次锁 30 分钟（`lockouts` 表）；写入端点按 IP + bucket 60 秒内最多 30 次（`rate_limits` 表）；内容上限 `MAX_NOTE_CONTENT_BYTES`（256 KiB）。新增写入端点应复用 `checkWriteRateLimit` 与该上限。
+- **防滥用**（`src/middleware/rateLimit.ts`，状态都存在 D1）：
+  - 密码尝试（笔记密码与后台密码登录）：在校验**之前**调用 `beginPasswordAttempt` 原子地占用一次次数，校验成功后调用 `clearFailedAttempts`。限制是同一 IP 30 分钟内 5 次，同一目标跨所有 IP 30 分钟内 20 次（全局计数行的 `ip` 记为 `'*'`），记录在 `lockouts` 表。不要改回「先检查锁定、失败后再记录」的写法，并发请求会绕过锁定。
+  - 写入端点：按 IP + bucket 每 60 秒最多 30 次；新建笔记另有 `checkNoteCreateLimit`，每 IP 每小时 30 篇，网页和 API 共用。两者都记在 `rate_limits` 表。
+  - 内容上限 `MAX_NOTE_CONTENT_BYTES`（256 KiB）。新增写入端点应复用上述检查。
 
 ### 管理后台登录
 
 - 两个独立入口：密码（`PASSWORD_ENABLED` 缺省为开且需配置 `ADMIN_PASSWORD`）与 dex OIDC 单点登录（凭据齐全且白名单非空）。可用性统一由 `src/services/authPolicy.ts` 的 `getAuthPolicy` 每次请求实时计算。
 - 会话存 `admin_sessions` 表，Cookie `yonote_admin` 的令牌带来源前缀 `p.` / `d.`；`isAdminAuthenticated` 会按来源回查当前开关，所以关闭某入口会立即让它签发的会话失效。无前缀的旧令牌按密码会话处理。
 - `yonote_admin` 的 `SameSite` 必须是 `Lax` 不能改成 `Strict`，否则 dex 回调后的跳转拿不到会话 Cookie（详见 README）。
-- dex 流程（`src/services/dex.ts`）：授权码 + PKCE，state/nonce/verifier 存在一次性签名 Cookie；`id_token` 校验 RS256 签名（按 `kid` 选 JWKS）、`iss`、`aud`、`exp`、`nonce`。白名单优先 `sub`，邮箱仅在 `email_verified` 为真时参与匹配。
+- dex 流程（`src/services/dex.ts`）：授权码 + PKCE，state/nonce/verifier 存在一次性签名 Cookie；`id_token` 校验 RS256 签名（按 `kid` 选 JWKS）、`iss`、`aud`、`exp`、`nonce`。白名单优先 `sub`；用户名白名单只匹配原始 `preferred_username`（`DexIdentity.username` 带回退值，只用于日志，不能参与权限判定）；邮箱仅在 `email_verified` 为真时参与匹配。
 
 ### 视图与前端
 
@@ -63,3 +66,4 @@ npm run dev                                # wrangler dev，默认 http://localh
 
 - 路由测试通过 esbuild 把 `src/routes/*.ts(x)` 打包成 data URL 再 import（`tests/helpers/load-module.mjs`，部分测试文件内联了同样的逻辑），然后用 `routes.request(path, init, env)` 直接调用，不启动 wrangler。纯工具模块可直接 `import '../src/....ts'`。
 - `tests/helpers/memory-d1.mjs` 是按 SQL 字符串匹配的内存 D1 替身，`createTestEnv()` 提供默认 env。**未识别的 SQL 会静默返回空结果 / `changes: 0`**，所以新增或修改 `queries.ts` 里的 SQL 时，要同步更新这个替身，否则测试可能假通过。
+- `tests/helpers/sqlite-d1.mjs` 基于 `node:sqlite`，加载真实的 `schema.sql`。包含 UPSERT、`CASE`、`RETURNING` 等逻辑的 SQL 要用它测，才能验证 SQL 本身写对了（例如 `tests/lockout.test.mjs`）。
