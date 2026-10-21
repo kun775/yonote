@@ -329,6 +329,53 @@ test('邮箱白名单仅在 email_verified 为真时生效', async () => {
     assert.equal(callback.headers.get('location'), '/admin?error=sso_forbidden');
 });
 
+async function completeCallback(env, claimOverrides) {
+    const { location, stateCookie } = await startAuthRequest(env);
+    const authorizeUrl = new URL(location);
+    nextIdToken = signIdToken(buildIdTokenClaims(authorizeUrl.searchParams.get('nonce'), claimOverrides));
+
+    return adminRoutes.request(
+        `/sso/callback?code=test-code&state=${encodeURIComponent(authorizeUrl.searchParams.get('state'))}`,
+        { headers: { cookie: stateCookie } },
+        env
+    );
+}
+
+test('缺少 preferred_username 时，name 与白名单用户名相同也不能登录', async () => {
+    const env = createEnv({ ...DEX_ENV, DEX_ALLOWED_EMAILS: '' });
+    const callback = await completeCallback(env, {
+        sub: 'attacker-sub',
+        preferred_username: undefined,
+        name: 'dex_vita',
+        email: 'attacker@example.com',
+        email_verified: false
+    });
+
+    assert.equal(callback.headers.get('location'), '/admin?error=sso_forbidden');
+    assert.equal(env.DB.adminSessions.size, 0);
+});
+
+test('未验证邮箱的本地部分不能冒充白名单用户名', async () => {
+    const env = createEnv({ ...DEX_ENV, DEX_ALLOWED_EMAILS: '' });
+    const callback = await completeCallback(env, {
+        sub: 'attacker-sub',
+        preferred_username: undefined,
+        email: 'dex_vita@attacker.example',
+        email_verified: false
+    });
+
+    assert.equal(callback.headers.get('location'), '/admin?error=sso_forbidden');
+    assert.equal(env.DB.adminSessions.size, 0);
+});
+
+test('preferred_username 命中白名单时允许登录（大小写不敏感）', async () => {
+    const env = createEnv({ ...DEX_ENV, DEX_ALLOWED_EMAILS: '' });
+    const callback = await completeCallback(env, { preferred_username: 'Dex_Vita', email_verified: false });
+
+    assert.equal(callback.headers.get('location'), '/admin/dashboard');
+    assert.equal(env.DB.adminSessions.size, 1);
+});
+
 test('state 缺失或不匹配时回到 sso_state', async () => {
     const env = createEnv({ ...DEX_ENV });
 

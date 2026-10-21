@@ -43,7 +43,10 @@ export type DexConfigStatus = 'ready' | 'unconfigured' | 'incomplete-credentials
 
 export interface DexIdentity {
     sub: string;
+    /** 仅用于日志展示，含 name / 邮箱前缀等回退值，禁止参与权限判定 */
     username: string;
+    /** id_token 原始 preferred_username，缺失时为 null；用户名白名单只认这个字段 */
+    preferredUsername: string | null;
     email: string | null;
     emailVerified: boolean;
 }
@@ -194,7 +197,8 @@ export function isIdentityAllowed(config: DexConfig, identity: DexIdentity): boo
     if (config.allowedSubs.includes(identity.sub)) {
         return true;
     }
-    if (config.allowedUsers.includes(identity.username.toLowerCase())) {
+    // 不能用展示用的 username：它会回退到 name / 未验证邮箱的前缀，可被他人伪造成白名单用户名
+    if (identity.preferredUsername && config.allowedUsers.includes(identity.preferredUsername.toLowerCase())) {
         return true;
     }
     if (identity.emailVerified && identity.email && config.allowedEmails.includes(identity.email.toLowerCase())) {
@@ -555,6 +559,7 @@ async function verifyIdToken(
     return {
         sub,
         username,
+        preferredUsername: preferredUsername || null,
         email,
         emailVerified: claims.email_verified === true
     };
