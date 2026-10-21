@@ -1,3 +1,5 @@
+import { Marked, type Token, type TokenizerExtension, type Tokens } from 'marked';
+
 const PDF_PAGE_WIDTH = 595;
 const PDF_PAGE_HEIGHT = 842;
 const PDF_MARGIN_X = 44;
@@ -5,21 +7,33 @@ const PDF_MARGIN_TOP = 52;
 const PDF_MARGIN_BOTTOM = 48;
 const PDF_CONTENT_WIDTH = PDF_PAGE_WIDTH - PDF_MARGIN_X * 2;
 
+// 列表内容相对列表标记的缩进、每层引用的缩进（pt）
+const LIST_MARKER_MIN_WIDTH = 18;
+const QUOTE_INDENT = 12;
+const QUOTE_BAR_WIDTH = 2;
+
 type Rgb = [number, number, number];
+
+type Align = 'left' | 'center' | 'right' | null;
 
 interface HeadingItem {
     level: number;
     text: string;
 }
 
-type Block =
-    | { type: 'heading'; level: number; text: string }
-    | { type: 'paragraph'; text: string }
-    | { type: 'list'; marker: string; depth: number; text: string }
-    | { type: 'quote'; lines: string[] }
-    | { type: 'code'; lines: string[] }
-    | { type: 'table'; header: string[]; rows: string[][] }
-    | { type: 'hr' }
+// 块在页面上的位置：offset 为相对左边距的缩进，quoteBars 为各层引用竖线的 x 偏移
+interface Layout {
+    offset: number;
+    quoteBars: number[];
+}
+
+export type Block =
+    | { type: 'heading'; level: number; text: string; layout: Layout }
+    | { type: 'paragraph'; lines: string[]; layout: Layout }
+    | { type: 'listItem'; marker: string; lines: string[]; layout: Layout }
+    | { type: 'code'; lines: string[]; layout: Layout }
+    | { type: 'table'; header: string[]; rows: string[][]; align: Align[]; layout: Layout }
+    | { type: 'hr'; layout: Layout }
     | { type: 'toc'; items: HeadingItem[] }
     | { type: 'spacer'; size: number };
 
@@ -39,6 +53,7 @@ interface RenderState {
 const COLOR_TEXT: Rgb = [0.10, 0.12, 0.14];
 const COLOR_MUTED: Rgb = [0.33, 0.38, 0.43];
 const COLOR_RULE: Rgb = [0.82, 0.86, 0.91];
+const COLOR_QUOTE_BAR: Rgb = [0.09, 0.44, 0.79];
 const COLOR_CODE_BG: Rgb = [0.96, 0.97, 0.99];
 const COLOR_TABLE_HEAD_BG: Rgb = [0.93, 0.96, 0.99];
 const COLOR_TABLE_ALT_BG: Rgb = [0.98, 0.99, 1.00];
@@ -52,34 +67,296 @@ const HEADING_SIZE: Record<number, number> = {
     6: 12
 };
 
-function normalizeMarkdown(content: string): string {
-    return (content || '')
-        .replace(/\r\n/g, '\n')
-        .replace(/\r/g, '\n')
-        .replace(/\u0000/g, '');
+const ROOT_LAYOUT: Layout = { offset: 0, quoteBars: [] };
+
+// ---------------------------------------------------------------------------
+// Markdown 解析：与网页预览（public/static/function.js）一样基于 marked（CommonMark + GFM，breaks 开启），
+// 并镜像其扩展：[TOC]、==高亮==、数学公式保护。两处扩展的匹配规则需保持一致，
+// tests/pdf-export.test.mjs 用与预览相同的样例覆盖。
+// PDF 只有一种字体，行内格式（粗体、斜体、代码等）输出为纯文本，链接输出为「文字 (地址)」。
+// ---------------------------------------------------------------------------
+
+function tokenizeInlineMath(src: string): Tokens.Generic | undefined {
+    const match = /^\\\(([\s\S]+?)\\\)/.exec(src)
+        || /^\\\[([\s\S]+?)\\\]/.exec(src)
+        || /^\$\$(?!\$)([\s\S]+?)\$\$/.exec(src)
+        || /^\$(?!\$)((?:\\.|[^\\$\n])+?)\$(?!\d)/.exec(src);
+    if (!match) return undefined;
+
+    if (match[0].startsWith('$') && !match[0].startsWith('$$') && /^\s|\s$/.test(match[1])) {
+        return undefined;
+    }
+    return { type: 'mathInline', raw: match[0], text: match[0] };
 }
 
-function stripInlineMarkdown(text: string): string {
-    let out = text || '';
+const PDF_MARKDOWN_EXTENSIONS: TokenizerExtension[] = [
+    {
+        name: 'toc',
+        level: 'block',
+        start(src) {
+            const index = src.search(/^ {0,3}\[TOC\][ \t]*$/im);
+            return index < 0 ? undefined : index;
+        },
+        tokenizer(src) {
+            const match = /^ {0,3}\[TOC\][ \t]*(?:\n+|$)/i.exec(src);
+            return match ? { type: 'toc', raw: match[0] } : undefined;
+        }
+    },
+    {
+        name: 'mathBlock',
+        level: 'block',
+        start(src) {
+            const index = src.search(/^ {0,3}(?:\$\$|\\\[)/m);
+            return index < 0 ? undefined : index;
+        },
+        tokenizer(src) {
+            const match = /^ {0,3}(\$\$(?:(?!\$\$)[\s\S])+?\$\$|\\\[(?:(?!\\\])[\s\S])+?\\\])[ \t]*(?:\n+|$)/.exec(src);
+            return match ? { type: 'mathBlock', raw: match[0], text: match[1] } : undefined;
+        }
+    },
+    {
+        name: 'mathInline',
+        level: 'inline',
+        start(src) {
+            const index = src.search(/\$|\\[([]/);
+            return index < 0 ? undefined : index;
+        },
+        tokenizer: tokenizeInlineMath
+    },
+    {
+        name: 'mark',
+        level: 'inline',
+        start(src) {
+            const index = src.indexOf('==');
+            return index < 0 ? undefined : index;
+        },
+        tokenizer(src) {
+            const match = /^==(?=\S)([^\n]*?\S)==/.exec(src);
+            if (!match) return undefined;
+            return { type: 'mark', raw: match[0], tokens: this.lexer.inlineTokens(match[1]) };
+        }
+    }
+];
 
-    out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt: string, url: string) => {
-        const safeAlt = (alt || '').trim();
-        const safeUrl = (url || '').trim();
-        if (safeAlt) return `[图片] ${safeAlt} (${safeUrl})`;
-        return `[图片] ${safeUrl}`;
+let markdownLexer: Marked | null = null;
+
+function getMarkdownLexer(): Marked {
+    if (!markdownLexer) {
+        markdownLexer = new Marked({ gfm: true, breaks: true });
+        markdownLexer.use({ extensions: PDF_MARKDOWN_EXTENSIONS });
+    }
+    return markdownLexer;
+}
+
+function decodeEntities(text: string): string {
+    return text
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;|&apos;/g, "'")
+        .replace(/&#(\d+);/g, (_, code: string) => safeFromCodePoint(Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => safeFromCodePoint(parseInt(code, 16)))
+        .replace(/&amp;/g, '&');
+}
+
+function safeFromCodePoint(code: number): string {
+    return Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+}
+
+function stripTags(html: string): string {
+    return decodeEntities(html.replace(/<[^>]*>/g, ''));
+}
+
+// 链接显示为「文字 (地址)」；自动链接等文字与地址相同的情况只显示一次
+function formatLink(label: string, href: string): string {
+    if (!href) return label;
+    const sameAsLabel = [label, `http://${label}`, `https://${label}`, `mailto:${label}`].includes(href);
+    if (!label || sameAsLabel) return label || href;
+    return `${label} (${href})`;
+}
+
+function inlineText(tokens: Token[] | undefined): string {
+    if (!tokens) return '';
+
+    return tokens.map((token) => {
+        switch (token.type) {
+            case 'br':
+                return '\n';
+            case 'codespan':
+                // 代码片段内的实体按字面显示（CommonMark 规定代码内不解码实体）
+                return token.text;
+            case 'link':
+                return formatLink(inlineText(token.tokens), token.href);
+            case 'image':
+                return token.text ? `[图片] ${token.text} (${token.href})` : `[图片] ${token.href}`;
+            case 'html':
+            case 'checkbox':
+                return '';
+            case 'mathInline':
+            case 'escape':
+                return token.text;
+            default:
+                if ('tokens' in token && Array.isArray(token.tokens)) {
+                    return inlineText(token.tokens);
+                }
+                return decodeEntities(String((token as Tokens.Generic).text ?? ''));
+        }
+    }).join('');
+}
+
+function toLines(text: string): string[] {
+    return text.split('\n').map((line) => line.replace(/[ \t]+/g, ' ').trim());
+}
+
+function collectHeadings(tokens: Token[]): HeadingItem[] {
+    const headings: HeadingItem[] = [];
+    const visit = (list: Token[]) => {
+        for (const token of list) {
+            if (token.type === 'heading') {
+                headings.push({ level: token.depth, text: inlineText(token.tokens).replace(/\s+/g, ' ').trim() || '未命名标题' });
+                continue;
+            }
+            if (token.type === 'list') {
+                (token as Tokens.List).items.forEach((item) => visit(item.tokens));
+            } else if (token.type === 'blockquote') {
+                visit((token as Tokens.Blockquote).tokens);
+            }
+        }
+    };
+    visit(tokens);
+    return headings;
+}
+
+function listMarker(list: Tokens.List, item: Tokens.ListItem, index: number): string {
+    const start = typeof list.start === 'number' ? list.start : 1;
+    const base = list.ordered ? `${start + index}.` : '•';
+    return item.task ? `${base} [${item.checked ? 'x' : ' '}]` : base;
+}
+
+function markerWidth(marker: string, fontSize: number): number {
+    return Math.max(LIST_MARKER_MIN_WIDTH, estimateTextUnits(`${marker} `) * fontSize);
+}
+
+function collectBlocks(tokens: Token[], layout: Layout, headings: HeadingItem[], out: Block[]): void {
+    for (const token of tokens) {
+        switch (token.type) {
+            case 'space':
+                out.push({ type: 'spacer', size: 8 });
+                break;
+            case 'heading':
+                out.push({
+                    type: 'heading',
+                    level: token.depth,
+                    text: inlineText(token.tokens).replace(/\s+/g, ' ').trim() || '未命名标题',
+                    layout
+                });
+                break;
+            case 'paragraph':
+            case 'text':
+                out.push({ type: 'paragraph', lines: toLines(inlineText(token.tokens ?? [token])), layout });
+                break;
+            case 'code':
+                out.push({ type: 'code', lines: token.text.replace(/\t/g, '    ').split('\n'), layout });
+                break;
+            case 'mathBlock':
+                out.push({ type: 'code', lines: String(token.text).split('\n'), layout });
+                break;
+            case 'blockquote':
+                collectBlocks((token as Tokens.Blockquote).tokens, {
+                    offset: layout.offset + QUOTE_INDENT,
+                    quoteBars: [...layout.quoteBars, layout.offset]
+                }, headings, out);
+                break;
+            case 'list': {
+                const list = token as Tokens.List;
+                list.items.forEach((item, index) => {
+                    collectListItem(list, item, index, layout, headings, out);
+                });
+                break;
+            }
+            case 'table':
+                out.push({
+                    type: 'table',
+                    header: token.header.map((cell: Tokens.TableCell) => inlineText(cell.tokens).replace(/\s+/g, ' ').trim()),
+                    rows: token.rows.map((row: Tokens.TableCell[]) => row.map((cell) => inlineText(cell.tokens).replace(/\s+/g, ' ').trim())),
+                    align: token.align,
+                    layout
+                });
+                break;
+            case 'hr':
+                out.push({ type: 'hr', layout });
+                break;
+            case 'html': {
+                const text = stripTags(token.text).trim();
+                if (text) {
+                    out.push({ type: 'paragraph', lines: toLines(text), layout });
+                }
+                break;
+            }
+            case 'toc':
+                out.push({ type: 'toc', items: headings });
+                break;
+            default:
+                // def（链接定义）等不产生可见内容
+                break;
+        }
+    }
+}
+
+// 列表项：首个文本块与标记同行，其余子块（段落、嵌套列表、代码、引用）缩进到标记之后
+function collectListItem(list: Tokens.List, item: Tokens.ListItem, index: number, layout: Layout, headings: HeadingItem[], out: Block[]): void {
+    const marker = listMarker(list, item, index);
+    const childLayout: Layout = { offset: layout.offset + markerWidth(marker, 11), quoteBars: layout.quoteBars };
+    const children = item.tokens.filter((child) => child.type !== 'checkbox');
+
+    const first = children[0];
+    const firstIsText = first && (first.type === 'text' || first.type === 'paragraph');
+    out.push({
+        type: 'listItem',
+        marker,
+        lines: firstIsText ? toLines(inlineText((first as Tokens.Text).tokens ?? [first])) : [''],
+        layout
     });
-    out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)');
-    out = out.replace(/`([^`]+)`/g, '$1');
-    out = out.replace(/\*\*(.*?)\*\*/g, '$1');
-    out = out.replace(/__(.*?)__/g, '$1');
-    out = out.replace(/~~(.*?)~~/g, '$1');
-    out = out.replace(/\*(.*?)\*/g, '$1');
-    out = out.replace(/_(.*?)_/g, '$1');
-    out = out.replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, '$1');
-    out = out.replace(/<\/?[^>]+>/g, '');
-    out = out.replace(/&nbsp;/g, ' ');
-    out = out.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-    return out.trim();
+
+    collectBlocks(firstIsText ? children.slice(1) : children, childLayout, headings, out);
+}
+
+function compactBlocks(blocks: Block[]): Block[] {
+    const output: Block[] = [];
+
+    for (const block of blocks) {
+        if (block.type !== 'spacer') {
+            output.push(block);
+            continue;
+        }
+
+        if (output.length === 0) continue;
+        const last = output[output.length - 1];
+        if (last.type === 'spacer') {
+            last.size = Math.max(last.size, block.size);
+            continue;
+        }
+        output.push(block);
+    }
+
+    while (output.length > 0 && output[0].type === 'spacer') {
+        output.shift();
+    }
+    while (output.length > 0 && output[output.length - 1].type === 'spacer') {
+        output.pop();
+    }
+
+    return output;
+}
+
+// parseMarkdownBlocks 把 Markdown 解析为 PDF 排版块（导出供测试使用）
+export function parseMarkdownBlocks(markdown: string): Block[] {
+    const source = (markdown || '').replace(/\r\n?/g, '\n').replace(/\u0000/g, '');
+    const tokens = getMarkdownLexer().lexer(source);
+    const blocks: Block[] = [];
+    collectBlocks(tokens, ROOT_LAYOUT, collectHeadings(tokens), blocks);
+    return compactBlocks(blocks);
 }
 
 // 字宽（em）与字体对象中声明的宽度一致：ASCII 为 /W 中的 500，其余字符为 /DW 1000
@@ -132,250 +409,6 @@ function wrapText(text: string, maxWidth: number, fontSize: number, collapseWhit
         lines.push(current);
     }
     return lines;
-}
-
-function isTableSeparatorLine(line: string): boolean {
-    const trimmed = line.trim();
-    if (!trimmed.includes('|')) return false;
-
-    let body = trimmed;
-    if (body.startsWith('|')) body = body.slice(1);
-    if (body.endsWith('|')) body = body.slice(0, -1);
-
-    const cells = body.split('|').map((cell) => cell.trim()).filter((cell) => cell.length > 0);
-    if (cells.length < 2) return false;
-    return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
-}
-
-function parseTableRow(line: string): string[] {
-    let body = line.trim();
-    if (body.startsWith('|')) body = body.slice(1);
-    if (body.endsWith('|')) body = body.slice(0, -1);
-    return body.split('|').map((cell) => stripInlineMarkdown(cell.trim()));
-}
-
-function collectHeadings(lines: string[]): HeadingItem[] {
-    const headings: HeadingItem[] = [];
-    let fence: string | null = null;
-
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (fence) {
-            if (trimmed.startsWith(fence)) {
-                fence = null;
-            }
-            continue;
-        }
-
-        const fenceMatch = trimmed.match(/^(```|~~~)/);
-        if (fenceMatch) {
-            fence = fenceMatch[1];
-            continue;
-        }
-
-        const match = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
-        if (!match) continue;
-        headings.push({
-            level: match[1].length,
-            text: stripInlineMarkdown(match[2]) || '未命名标题'
-        });
-    }
-
-    return headings;
-}
-
-function compactBlocks(blocks: Block[]): Block[] {
-    const output: Block[] = [];
-
-    for (const block of blocks) {
-        if (block.type !== 'spacer') {
-            output.push(block);
-            continue;
-        }
-
-        if (output.length === 0) continue;
-        const last = output[output.length - 1];
-        if (last.type === 'spacer') {
-            last.size = Math.max(last.size, block.size);
-            continue;
-        }
-        output.push(block);
-    }
-
-    while (output.length > 0 && output[0].type === 'spacer') {
-        output.shift();
-    }
-    while (output.length > 0 && output[output.length - 1].type === 'spacer') {
-        output.pop();
-    }
-
-    return output;
-}
-
-function parseBlocks(markdown: string): Block[] {
-    const lines = normalizeMarkdown(markdown).split('\n');
-    const headings = collectHeadings(lines);
-    const blocks: Block[] = [];
-
-    const paragraphBuffer: string[] = [];
-    const quoteBuffer: string[] = [];
-    let fence: string | null = null;
-    let codeBuffer: string[] = [];
-
-    const flushParagraph = () => {
-        if (paragraphBuffer.length === 0) return;
-        const text = stripInlineMarkdown(paragraphBuffer.join(' ')).replace(/\s+/g, ' ').trim();
-        if (text) {
-            blocks.push({ type: 'paragraph', text });
-        }
-        paragraphBuffer.length = 0;
-    };
-
-    const flushQuote = () => {
-        if (quoteBuffer.length === 0) return;
-        const linesOut = quoteBuffer
-            .map((line) => stripInlineMarkdown(line).trim())
-            .filter((line) => line.length > 0);
-        if (linesOut.length > 0) {
-            blocks.push({ type: 'quote', lines: linesOut });
-        }
-        quoteBuffer.length = 0;
-    };
-
-    const flushCode = () => {
-        blocks.push({ type: 'code', lines: [...codeBuffer] });
-        codeBuffer = [];
-    };
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const trimmed = line.trim();
-
-        if (fence) {
-            if (trimmed.startsWith(fence)) {
-                fence = null;
-                flushCode();
-            } else {
-                codeBuffer.push(line.replace(/\t/g, '    '));
-            }
-            continue;
-        }
-
-        const fenceMatch = trimmed.match(/^(```|~~~)/);
-        if (fenceMatch) {
-            flushParagraph();
-            flushQuote();
-            fence = fenceMatch[1];
-            continue;
-        }
-
-        if (/^\s*$/.test(line)) {
-            flushParagraph();
-            flushQuote();
-            blocks.push({ type: 'spacer', size: 8 });
-            continue;
-        }
-
-        if (/^\s*\[TOC\]\s*$/i.test(line)) {
-            flushParagraph();
-            flushQuote();
-            blocks.push({ type: 'toc', items: headings });
-            continue;
-        }
-
-        const headingMatch = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
-        if (headingMatch) {
-            flushParagraph();
-            flushQuote();
-            blocks.push({
-                type: 'heading',
-                level: headingMatch[1].length,
-                text: stripInlineMarkdown(headingMatch[2]) || '未命名标题'
-            });
-            continue;
-        }
-
-        if (/^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(trimmed)) {
-            flushParagraph();
-            flushQuote();
-            blocks.push({ type: 'hr' });
-            continue;
-        }
-
-        const nextLine = lines[i + 1] || '';
-        if (
-            line.includes('|')
-            && isTableSeparatorLine(nextLine)
-        ) {
-            const header = parseTableRow(line);
-            if (header.length >= 2 && header.some((cell) => cell.length > 0)) {
-                flushParagraph();
-                flushQuote();
-
-                i += 2; // skip header + separator
-                const rows: string[][] = [];
-                while (i < lines.length) {
-                    const rowLine = lines[i];
-                    if (!rowLine.trim()) break;
-                    if (!rowLine.includes('|')) break;
-                    if (isTableSeparatorLine(rowLine)) {
-                        i++;
-                        continue;
-                    }
-                    rows.push(parseTableRow(rowLine));
-                    i++;
-                }
-                i -= 1;
-
-                blocks.push({ type: 'table', header, rows });
-                continue;
-            }
-        }
-
-        const quoteMatch = line.match(/^\s*>\s?(.*)$/);
-        if (quoteMatch) {
-            flushParagraph();
-            quoteBuffer.push(quoteMatch[1]);
-            continue;
-        }
-        flushQuote();
-
-        const orderedMatch = line.match(/^(\s*)(\d+)\.\s+(.*)$/);
-        if (orderedMatch) {
-            flushParagraph();
-            const depth = Math.floor(orderedMatch[1].replace(/\t/g, '    ').length / 2);
-            blocks.push({
-                type: 'list',
-                marker: `${orderedMatch[2]}.`,
-                depth,
-                text: stripInlineMarkdown(orderedMatch[3])
-            });
-            continue;
-        }
-
-        const bulletMatch = line.match(/^(\s*)[-*+]\s+(.*)$/);
-        if (bulletMatch) {
-            flushParagraph();
-            const depth = Math.floor(bulletMatch[1].replace(/\t/g, '    ').length / 2);
-            blocks.push({
-                type: 'list',
-                marker: '•',
-                depth,
-                text: stripInlineMarkdown(bulletMatch[2])
-            });
-            continue;
-        }
-
-        paragraphBuffer.push(line.trim());
-    }
-
-    if (fence) {
-        flushCode();
-    }
-    flushParagraph();
-    flushQuote();
-
-    return compactBlocks(blocks);
 }
 
 function encodeUtf16BeHex(input: string): string {
@@ -449,11 +482,27 @@ function drawTextAbsolute(state: RenderState, text: string, x: number, baselineY
     state.commands.push('ET');
 }
 
-function drawFlowLine(state: RenderState, text: string, style: TextStyle, options?: { background?: Rgb; backgroundWidth?: number }): void {
+// 在 [yBottom, yBottom + height] 区间画出各层引用的竖线
+function drawQuoteBars(state: RenderState, quoteBars: number[], yBottom: number, height: number): void {
+    for (const bar of quoteBars) {
+        drawRectFill(state, PDF_MARGIN_X + bar, yBottom, QUOTE_BAR_WIDTH, height, COLOR_QUOTE_BAR);
+    }
+}
+
+function drawFlowLine(
+    state: RenderState,
+    text: string,
+    style: TextStyle,
+    options?: { background?: Rgb; backgroundWidth?: number; quoteBars?: number[] }
+): void {
     ensureSpace(state, style.lineHeight);
     const x = PDF_MARGIN_X + style.indent;
     const top = state.y;
     const baseline = top - style.fontSize;
+
+    if (options?.quoteBars?.length) {
+        drawQuoteBars(state, options.quoteBars, top - style.lineHeight, style.lineHeight);
+    }
 
     if (options?.background) {
         const width = options.backgroundWidth || (PDF_CONTENT_WIDTH - style.indent);
@@ -465,10 +514,24 @@ function drawFlowLine(state: RenderState, text: string, style: TextStyle, option
     state.y -= style.lineHeight;
 }
 
-function drawHorizontalRule(state: RenderState): void {
+// 块之间的间距也要延续引用竖线，否则多段引用会断开
+function addLayoutGap(state: RenderState, gap: number, layout: Layout): void {
+    if (gap <= 0) return;
+    ensureSpace(state, gap);
+    if (layout.quoteBars.length > 0) {
+        drawQuoteBars(state, layout.quoteBars, state.y - gap, gap);
+    }
+    state.y -= gap;
+}
+
+function textColor(layout: Layout): Rgb {
+    return layout.quoteBars.length > 0 ? COLOR_MUTED : COLOR_TEXT;
+}
+
+function drawHorizontalRule(state: RenderState, layout: Layout): void {
     ensureSpace(state, 10);
     const y = state.y - 4;
-    const x1 = PDF_MARGIN_X;
+    const x1 = PDF_MARGIN_X + layout.offset;
     const x2 = PDF_PAGE_WIDTH - PDF_MARGIN_X;
 
     state.commands.push('q');
@@ -476,139 +539,112 @@ function drawHorizontalRule(state: RenderState): void {
     state.commands.push('1 w');
     state.commands.push(`${fmt(x1)} ${fmt(y)} m ${fmt(x2)} ${fmt(y)} l S`);
     state.commands.push('Q');
+    drawQuoteBars(state, layout.quoteBars, state.y - 10, 10);
     state.y -= 10;
 }
 
-function renderWrappedText(state: RenderState, text: string, style: TextStyle, collapseWhitespace: boolean): void {
+function renderWrappedLines(state: RenderState, lines: string[], style: TextStyle, layout: Layout): void {
     const maxWidth = PDF_CONTENT_WIDTH - style.indent;
-    const lines = wrapText(text, maxWidth, style.fontSize, collapseWhitespace);
-    for (const line of lines) {
-        drawFlowLine(state, line, style);
+    for (const sourceLine of lines) {
+        for (const line of wrapText(sourceLine, maxWidth, style.fontSize, true)) {
+            drawFlowLine(state, line, style, { quoteBars: layout.quoteBars });
+        }
     }
 }
 
-function renderHeading(state: RenderState, level: number, text: string): void {
+function renderHeading(state: RenderState, level: number, text: string, layout: Layout): void {
     const fontSize = HEADING_SIZE[level] || 12;
     const style: TextStyle = {
         fontSize,
         lineHeight: fontSize + 8,
-        indent: 0,
-        color: COLOR_TEXT
+        indent: layout.offset,
+        color: textColor(layout)
     };
-    addGap(state, level <= 2 ? 10 : 8);
-    renderWrappedText(state, text, style, true);
-    addGap(state, 4);
+    addLayoutGap(state, level <= 2 ? 10 : 8, layout);
+    renderWrappedLines(state, [text], style, layout);
+    addLayoutGap(state, 4, layout);
 }
 
-function renderParagraph(state: RenderState, text: string): void {
+function renderParagraph(state: RenderState, lines: string[], layout: Layout): void {
     const style: TextStyle = {
         fontSize: 11,
         lineHeight: 17,
-        indent: 0,
-        color: COLOR_TEXT
+        indent: layout.offset,
+        color: textColor(layout)
     };
-    renderWrappedText(state, text, style, true);
-    addGap(state, 4);
+    renderWrappedLines(state, lines, style, layout);
+    addLayoutGap(state, 4, layout);
 }
 
-function renderListItem(state: RenderState, marker: string, depth: number, text: string): void {
-    const safeDepth = Math.min(7, Math.max(0, depth));
-    const indent = safeDepth * 16;
-    const markerPrefix = `${marker} `;
-    const style: TextStyle = {
-        fontSize: 11,
-        lineHeight: 17,
-        indent,
-        color: COLOR_TEXT
-    };
-    const markerWidth = 18;
-    const maxWidth = PDF_CONTENT_WIDTH - indent - markerWidth;
-    const lines = wrapText(text, maxWidth, style.fontSize, true);
+function renderListItem(state: RenderState, marker: string, lines: string[], layout: Layout): void {
+    const fontSize = 11;
+    const lineHeight = 17;
+    const contentIndent = layout.offset + markerWidth(marker, fontSize);
+    const style: TextStyle = { fontSize, lineHeight, indent: contentIndent, color: textColor(layout) };
+    const maxWidth = PDF_CONTENT_WIDTH - contentIndent;
 
-    lines.forEach((line, index) => {
+    const wrapped = lines.flatMap((line) => wrapText(line, maxWidth, fontSize, true));
+    wrapped.forEach((line, index) => {
         if (index === 0) {
-            drawFlowLine(state, `${markerPrefix}${line}`, style);
-        } else {
-            drawFlowLine(state, `${' '.repeat(markerPrefix.length)}${line}`, style);
+            // 先确保本行空间，再画标记，避免标记与文字被分页拆开
+            ensureSpace(state, lineHeight);
+            drawTextAbsolute(state, marker, PDF_MARGIN_X + layout.offset, state.y - fontSize, fontSize, style.color);
         }
+        drawFlowLine(state, line, style, { quoteBars: layout.quoteBars });
     });
 
-    addGap(state, 2);
+    addLayoutGap(state, 2, layout);
 }
 
-function renderQuote(state: RenderState, lines: string[]): void {
-    const style: TextStyle = {
-        fontSize: 10.5,
-        lineHeight: 16,
-        indent: 10,
-        color: COLOR_MUTED
-    };
-    for (const line of lines) {
-        const wrapped = wrapText(line, PDF_CONTENT_WIDTH - style.indent - 14, style.fontSize, true);
-        for (const piece of wrapped) {
-            drawFlowLine(state, `| ${piece}`, style);
-        }
-    }
-    addGap(state, 4);
-}
-
-function renderCodeBlock(state: RenderState, lines: string[]): void {
+function renderCodeBlock(state: RenderState, lines: string[], layout: Layout): void {
     const style: TextStyle = {
         fontSize: 10,
         lineHeight: 15,
-        indent: 12,
+        indent: layout.offset + 12,
         color: COLOR_TEXT
     };
     const maxWidth = PDF_CONTENT_WIDTH - style.indent - 4;
-    addGap(state, 4);
+    const options = { background: COLOR_CODE_BG, backgroundWidth: maxWidth, quoteBars: layout.quoteBars };
+    addLayoutGap(state, 4, layout);
 
-    if (lines.length === 0) {
-        drawFlowLine(state, ' ', style, { background: COLOR_CODE_BG, backgroundWidth: maxWidth });
-        addGap(state, 6);
-        return;
-    }
-
-    for (const rawLine of lines) {
-        const wrapped = wrapText(rawLine || ' ', maxWidth, style.fontSize, false);
-        for (const line of wrapped) {
-            drawFlowLine(state, line || ' ', style, {
-                background: COLOR_CODE_BG,
-                backgroundWidth: maxWidth
-            });
+    const source = lines.length > 0 ? lines : [' '];
+    for (const rawLine of source) {
+        for (const line of wrapText(rawLine || ' ', maxWidth, style.fontSize, false)) {
+            drawFlowLine(state, line || ' ', style, options);
         }
     }
 
-    addGap(state, 6);
+    addLayoutGap(state, 6, layout);
 }
 
 function renderToc(state: RenderState, items: HeadingItem[]): void {
-    renderHeading(state, 4, '目录');
+    renderHeading(state, 4, '目录', ROOT_LAYOUT);
     if (items.length === 0) {
-        renderParagraph(state, '（无可用标题）');
+        renderParagraph(state, ['（无可用标题）'], ROOT_LAYOUT);
         return;
     }
 
     for (const item of items) {
-        renderListItem(state, '•', Math.max(0, item.level - 1), item.text);
+        const layout: Layout = { offset: Math.max(0, item.level - 1) * 16, quoteBars: [] };
+        renderListItem(state, '•', [item.text], layout);
     }
     addGap(state, 4);
 }
 
-function normalizeRow(row: string[], colCount: number): string[] {
+function normalizeRow<T>(row: T[], colCount: number, fill: T): T[] {
     const normalized = [...row];
-    while (normalized.length < colCount) normalized.push('');
+    while (normalized.length < colCount) normalized.push(fill);
     if (normalized.length > colCount) {
         normalized.length = colCount;
     }
     return normalized;
 }
 
-function computeColumnWidths(header: string[], rows: string[][]): number[] {
-    const colCount = Math.max(2, header.length, ...rows.map((row) => row.length));
+function computeColumnWidths(header: string[], rows: string[][], totalWidth: number): number[] {
+    const colCount = header.length;
     const weights = new Array(colCount).fill(1);
 
-    const allRows = [normalizeRow(header, colCount), ...rows.map((row) => normalizeRow(row, colCount))];
-    for (const row of allRows) {
+    for (const row of [header, ...rows]) {
         for (let i = 0; i < colCount; i++) {
             const units = Math.min(26, estimateTextUnits(row[i] || '') + 2);
             if (units > weights[i]) weights[i] = units;
@@ -616,20 +652,19 @@ function computeColumnWidths(header: string[], rows: string[][]): number[] {
     }
 
     const minWidth = 72;
-    if (colCount * minWidth > PDF_CONTENT_WIDTH) {
-        const equal = PDF_CONTENT_WIDTH / colCount;
-        return new Array(colCount).fill(equal);
+    if (colCount * minWidth > totalWidth) {
+        return new Array(colCount).fill(totalWidth / colCount);
     }
 
     const totalWeight = weights.reduce((acc, val) => acc + val, 0);
-    let widths = weights.map((w) => (PDF_CONTENT_WIDTH * w) / totalWeight);
+    let widths = weights.map((w) => (totalWidth * w) / totalWeight);
     widths = widths.map((w) => Math.max(minWidth, w));
 
     const sum = widths.reduce((acc, val) => acc + val, 0);
-    const scale = PDF_CONTENT_WIDTH / sum;
+    const scale = totalWidth / sum;
     widths = widths.map((w) => w * scale);
 
-    const diff = PDF_CONTENT_WIDTH - widths.reduce((acc, val) => acc + val, 0);
+    const diff = totalWidth - widths.reduce((acc, val) => acc + val, 0);
     widths[widths.length - 1] += diff;
     return widths;
 }
@@ -661,34 +696,49 @@ function measureTableRow(cells: string[], widths: number[], isHeader: boolean): 
     return { height, wrapped, fontSize, lineHeight, paddingX, paddingY };
 }
 
-function drawTableRow(
-    state: RenderState,
-    cells: string[],
-    widths: number[],
-    isHeader: boolean,
-    zebraIndex: number
-): number {
-    const metrics = measureTableRow(cells, widths, isHeader);
+// 按列对齐方式计算单元格内一行文字的起点（宽度为估算值）
+function alignedTextX(cellX: number, cellWidth: number, paddingX: number, text: string, fontSize: number, align: Align): number {
+    if (align !== 'center' && align !== 'right') {
+        return cellX + paddingX;
+    }
+    const textWidth = estimateTextUnits(text) * fontSize;
+    const offset = align === 'center'
+        ? (cellWidth - textWidth) / 2
+        : cellWidth - paddingX - textWidth;
+    return cellX + Math.max(paddingX, offset);
+}
+
+interface TableGeometry {
+    x: number;
+    widths: number[];
+    align: Align[];
+    layout: Layout;
+}
+
+function drawTableRow(state: RenderState, cells: string[], table: TableGeometry, isHeader: boolean, zebraIndex: number): number {
+    const metrics = measureTableRow(cells, table.widths, isHeader);
     const rowHeight = metrics.height;
     ensureSpace(state, rowHeight);
 
     const yTop = state.y;
     const yBottom = yTop - rowHeight;
+    const totalWidth = table.widths.reduce((acc, val) => acc + val, 0);
     const rowBg = isHeader
         ? COLOR_TABLE_HEAD_BG
         : (zebraIndex % 2 === 0 ? COLOR_TABLE_ALT_BG : [1, 1, 1] as Rgb);
 
-    drawRectFill(state, PDF_MARGIN_X, yBottom, PDF_CONTENT_WIDTH, rowHeight, rowBg);
+    drawQuoteBars(state, table.layout.quoteBars, yBottom, rowHeight);
+    drawRectFill(state, table.x, yBottom, totalWidth, rowHeight, rowBg);
 
-    let x = PDF_MARGIN_X;
-    for (let col = 0; col < widths.length; col++) {
-        const width = widths[col];
+    let x = table.x;
+    for (let col = 0; col < table.widths.length; col++) {
+        const width = table.widths[col];
         drawRectStroke(state, x, yBottom, width, rowHeight, COLOR_RULE, 0.7);
 
-        const lines = metrics.wrapped[col];
-        lines.forEach((line, lineIndex) => {
+        metrics.wrapped[col].forEach((line, lineIndex) => {
             const baseline = yTop - metrics.paddingY - metrics.fontSize - lineIndex * metrics.lineHeight;
-            drawTextAbsolute(state, line, x + metrics.paddingX, baseline, metrics.fontSize, COLOR_TEXT);
+            const textX = alignedTextX(x, width, metrics.paddingX, line, metrics.fontSize, table.align[col]);
+            drawTextAbsolute(state, line, textX, baseline, metrics.fontSize, COLOR_TEXT);
         });
 
         x += width;
@@ -698,26 +748,32 @@ function drawTableRow(
     return rowHeight;
 }
 
-function renderTable(state: RenderState, header: string[], rows: string[][]): void {
-    const colCount = Math.max(2, header.length, ...rows.map((row) => row.length));
-    const normalizedHeader = normalizeRow(header, colCount);
-    const normalizedRows = rows.map((row) => normalizeRow(row, colCount));
-    const widths = computeColumnWidths(normalizedHeader, normalizedRows);
+function renderTable(state: RenderState, header: string[], rows: string[][], align: Align[], layout: Layout): void {
+    const colCount = Math.max(1, header.length, ...rows.map((row) => row.length));
+    const normalizedHeader = normalizeRow(header, colCount, '');
+    const normalizedRows = rows.map((row) => normalizeRow(row, colCount, ''));
+    const totalWidth = PDF_CONTENT_WIDTH - layout.offset;
+    const table: TableGeometry = {
+        x: PDF_MARGIN_X + layout.offset,
+        widths: computeColumnWidths(normalizedHeader, normalizedRows, totalWidth),
+        align: normalizeRow(align, colCount, null),
+        layout
+    };
 
-    addGap(state, 6);
+    addLayoutGap(state, 6, layout);
 
     // 表格分页时重复表头
-    drawTableRow(state, normalizedHeader, widths, true, 0);
+    drawTableRow(state, normalizedHeader, table, true, 0);
     for (let i = 0; i < normalizedRows.length; i++) {
-        const nextMetrics = measureTableRow(normalizedRows[i], widths, false);
+        const nextMetrics = measureTableRow(normalizedRows[i], table.widths, false);
         if (state.y - nextMetrics.height < PDF_MARGIN_BOTTOM) {
             startNewPage(state);
-            drawTableRow(state, normalizedHeader, widths, true, 0);
+            drawTableRow(state, normalizedHeader, table, true, 0);
         }
-        drawTableRow(state, normalizedRows[i], widths, false, i);
+        drawTableRow(state, normalizedRows[i], table, false, i);
     }
 
-    addGap(state, 8);
+    addLayoutGap(state, 8, layout);
 }
 
 function appendPageFooter(stream: string, pageIndex: number, totalPages: number): string {
@@ -731,32 +787,29 @@ function renderBlocksToPages(blocks: Block[]): string[] {
     const state = createState();
 
     if (blocks.length === 0) {
-        renderParagraph(state, '');
+        renderParagraph(state, [''], ROOT_LAYOUT);
     } else {
         for (const block of blocks) {
             switch (block.type) {
                 case 'heading':
-                    renderHeading(state, block.level, block.text);
+                    renderHeading(state, block.level, block.text, block.layout);
                     break;
                 case 'paragraph':
-                    renderParagraph(state, block.text);
+                    renderParagraph(state, block.lines, block.layout);
                     break;
-                case 'list':
-                    renderListItem(state, block.marker, block.depth, block.text);
-                    break;
-                case 'quote':
-                    renderQuote(state, block.lines);
+                case 'listItem':
+                    renderListItem(state, block.marker, block.lines, block.layout);
                     break;
                 case 'code':
-                    renderCodeBlock(state, block.lines);
+                    renderCodeBlock(state, block.lines, block.layout);
                     break;
                 case 'table':
-                    renderTable(state, block.header, block.rows);
+                    renderTable(state, block.header, block.rows, block.align, block.layout);
                     break;
                 case 'hr':
-                    addGap(state, 4);
-                    drawHorizontalRule(state);
-                    addGap(state, 4);
+                    addLayoutGap(state, 4, block.layout);
+                    drawHorizontalRule(state, block.layout);
+                    addLayoutGap(state, 4, block.layout);
                     break;
                 case 'toc':
                     renderToc(state, block.items);
@@ -825,8 +878,7 @@ function buildPdfDocument(pageStreams: string[]): Uint8Array {
 }
 
 export function buildMarkdownPdf(markdown: string): Uint8Array {
-    const blocks = parseBlocks(markdown);
+    const blocks = parseMarkdownBlocks(markdown);
     const pages = renderBlocksToPages(blocks);
     return buildPdfDocument(pages);
 }
-
