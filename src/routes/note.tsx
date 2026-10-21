@@ -14,7 +14,7 @@ import {
 } from '../middleware/rateLimit';
 import { ViewPage } from '../views/note/view';
 import { PasswordPage } from '../views/note/password';
-import { isValidKey } from '../utils/validation';
+import { isValidKey, safeRedirectPath } from '../utils/validation';
 
 export const noteRoutes = new Hono<AppEnv>();
 
@@ -122,7 +122,7 @@ noteRoutes.post('/:key/verify', async (c) => {
     const key = c.req.param('key');
     const formData = await c.req.parseBody();
     const password = formData['password'] as string || '';
-    const nextUrl = formData['next_url'] as string || `/${key}`;
+    const nextUrl = safeRedirectPath(formData['next_url'], `/${key}`);
 
     const lockoutStatus = await isLockedOut(c, key);
     if (lockoutStatus.locked) {
