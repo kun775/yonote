@@ -22,15 +22,25 @@ function escapeHtml(text) {
         .replace(/'/g, '&#39;');
 }
 
+// sanitizeUrl 按协议白名单过滤链接 / 图片地址，返回可直接放进属性的转义值，不允许时返回空串
+//
+// 无协议的相对地址（docs/a.md、../x、#锚点、/path）放行；有协议的只允许 http(s)、mailto、tel，
+// 图片额外允许 base64 data:image。判断协议前先去掉空白与控制字符，防止 "java\tscript:" 绕过。
 function sanitizeUrl(url, allowDataImage = false) {
     const value = String(url || '').trim();
     if (!value) return '';
 
-    if (/^(https?:|mailto:|tel:|\/|\.\/|\.\.\/|#)/i.test(value)) {
+    const compact = value.replace(/[\u0000- \u007f]/g, '');
+    const scheme = compact.match(/^([a-z][a-z0-9+.-]*):/i);
+    if (!scheme) {
         return escapeHtml(value);
     }
 
-    if (allowDataImage && /^data:image\/[a-zA-Z0-9.+-]+;base64,/i.test(value)) {
+    if (['http', 'https', 'mailto', 'tel'].includes(scheme[1].toLowerCase())) {
+        return escapeHtml(value);
+    }
+
+    if (allowDataImage && /^data:image\/[a-z0-9.+-]+;base64,/i.test(compact)) {
         return escapeHtml(value);
     }
 
@@ -94,316 +104,182 @@ function stripMarkdownForHeading(text) {
         .trim();
 }
 
-function normalizeMarkdownLines(content) {
-    return String(content || '')
-        .replace(/\r\n/g, '\n')
-        .replace(/\r/g, '\n')
-        .split('\n');
+// ---------------------------------------------------------------------------
+// Markdown 渲染：基于 marked（CommonMark + GFM，见 public/static/vendor/），在其上扩展
+//   - [TOC] 目录、==高亮==、标题锚点 id（与悬浮目录共用 generateHeadingId）
+//   - 数学公式保护：$...$、$$...$$、\(...\)、\[...\] 原样包进 .math-inline / .math-block，
+//     避免公式里的 _ * \ 被当成 Markdown 语法吃掉；app.js 只对这些元素调用 KaTeX，
+//     普通文本里的 $（如金额）不会被误渲染成公式
+//   - 链接 / 图片地址白名单（sanitizeUrl），外链新窗口打开
+//
+// 安全约束：输出写入 DOM 前必须再经 DOMPurify 净化；
+// allowHtml 为 false 时（净化器未加载）原始 HTML 一律按文本转义，保证失败时是「安全地降级」。
+// ---------------------------------------------------------------------------
+
+let markdownRenderState = { headings: [], allowHtml: false };
+let markdownInstance = null;
+
+// 行内公式：\(...\)、段内的 \[...\] 与 $$...$$（KaTeX 按块级显示）、$...$。
+// $...$ 要求定界符内侧不贴空白、结尾 $ 后不跟数字，避免把「$5 和 $10」这类金额误判为公式
+function tokenizeInlineMath(src) {
+    const match = /^\\\(([\s\S]+?)\\\)/.exec(src)
+        || /^\\\[([\s\S]+?)\\\]/.exec(src)
+        || /^\$\$(?!\$)([\s\S]+?)\$\$/.exec(src)
+        || /^\$(?!\$)((?:\\.|[^\\$\n])+?)\$(?!\d)/.exec(src);
+    if (!match) return undefined;
+
+    const body = match[1];
+    if (match[0].startsWith('$') && !match[0].startsWith('$$') && /^\s|\s$/.test(body)) {
+        return undefined;
+    }
+    return { type: 'mathInline', raw: match[0], text: match[0] };
 }
 
-function collectHeadings(content) {
-    const lines = normalizeMarkdownLines(content);
+const markdownExtensions = [
+    {
+        name: 'toc',
+        level: 'block',
+        start(src) {
+            const index = src.search(/^ {0,3}\[TOC\][ \t]*$/im);
+            return index < 0 ? undefined : index;
+        },
+        tokenizer(src) {
+            const match = /^ {0,3}\[TOC\][ \t]*(?:\n+|$)/i.exec(src);
+            return match ? { type: 'toc', raw: match[0] } : undefined;
+        },
+        renderer() {
+            return generateTOCHtml(markdownRenderState.headings);
+        }
+    },
+    {
+        name: 'mathBlock',
+        level: 'block',
+        start(src) {
+            const index = src.search(/^ {0,3}(?:\$\$|\\\[)/m);
+            return index < 0 ? undefined : index;
+        },
+        tokenizer(src) {
+            // 公式体内不允许再出现结束定界符，避免懒惰匹配跨过多个公式
+            const match = /^ {0,3}(\$\$(?:(?!\$\$)[\s\S])+?\$\$|\\\[(?:(?!\\\])[\s\S])+?\\\])[ \t]*(?:\n+|$)/.exec(src);
+            return match ? { type: 'mathBlock', raw: match[0], text: match[1] } : undefined;
+        },
+        renderer(token) {
+            return `<div class="math-block">${escapeHtml(token.text)}</div>\n`;
+        }
+    },
+    {
+        name: 'mathInline',
+        level: 'inline',
+        start(src) {
+            const index = src.search(/\$|\\[([]/);
+            return index < 0 ? undefined : index;
+        },
+        tokenizer: tokenizeInlineMath,
+        renderer(token) {
+            return `<span class="math-inline">${escapeHtml(token.text)}</span>`;
+        }
+    },
+    {
+        name: 'mark',
+        level: 'inline',
+        start(src) {
+            const index = src.indexOf('==');
+            return index < 0 ? undefined : index;
+        },
+        tokenizer(src) {
+            const match = /^==(?=\S)([^\n]*?\S)==/.exec(src);
+            if (!match) return undefined;
+            return { type: 'mark', raw: match[0], tokens: this.lexer.inlineTokens(match[1]) };
+        },
+        renderer(token) {
+            return `<mark>${this.parser.parseInline(token.tokens)}</mark>`;
+        }
+    }
+];
+
+const markdownRenderer = {
+    heading(token) {
+        const id = token.yonoteId ? ` id="${escapeHtml(token.yonoteId)}"` : '';
+        return `<h${token.depth}${id}>${this.parser.parseInline(token.tokens)}</h${token.depth}>\n`;
+    },
+    link(token) {
+        const text = this.parser.parseInline(token.tokens);
+        const href = sanitizeUrl(token.href);
+        if (!href) return text;
+
+        const title = token.title ? ` title="${escapeHtml(token.title)}"` : '';
+        const external = /^(?:https?:)?\/\//i.test(token.href);
+        const target = external ? ' target="_blank" rel="noopener noreferrer"' : '';
+        return `<a href="${href}"${title}${target}>${text}</a>`;
+    },
+    image(token) {
+        const src = sanitizeUrl(token.href, true);
+        if (!src) return escapeHtml(token.text);
+
+        const title = token.title ? ` title="${escapeHtml(token.title)}"` : '';
+        return `<img src="${src}" alt="${escapeHtml(token.text)}"${title} loading="lazy" />`;
+    },
+    html(token) {
+        return markdownRenderState.allowHtml ? token.text : escapeHtml(token.text);
+    },
+    listitem(item) {
+        const body = this.parser.parse(item.tokens);
+        return item.task ? `<li class="task-list-item">${body}</li>\n` : `<li>${body}</li>\n`;
+    }
+};
+
+function getMarkdownInstance() {
+    if (markdownInstance) return markdownInstance;
+    if (typeof marked === 'undefined' || typeof marked.Marked !== 'function') return null;
+
+    markdownInstance = new marked.Marked({ gfm: true, breaks: true });
+    markdownInstance.use({ extensions: markdownExtensions, renderer: markdownRenderer });
+    return markdownInstance;
+}
+
+// 按文档顺序收集所有标题（含引用、列表内的标题），并把锚点 id 写回 token 供渲染使用
+function assignHeadingIds(tokens) {
     const headings = [];
-    let headingIndex = 0;
-    let fence = null;
-
-    lines.forEach((line) => {
-        const trimmed = line.trim();
-        const fenceMatch = trimmed.match(/^(```|~~~)/);
-
-        if (fence) {
-            if (fenceMatch && fenceMatch[1] === fence) {
-                fence = null;
+    const visit = (list) => {
+        list.forEach((token) => {
+            if (token.type === 'heading') {
+                const text = stripMarkdownForHeading(token.text) || '未命名标题';
+                token.yonoteId = generateHeadingId(text, headings.length);
+                headings.push({ level: token.depth, text, id: token.yonoteId });
             }
-            return;
-        }
-
-        if (fenceMatch) {
-            fence = fenceMatch[1];
-            return;
-        }
-
-        const match = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
-        if (!match) return;
-
-        const text = stripMarkdownForHeading(match[2]);
-        headings.push({
-            level: match[1].length,
-            text: text || '未命名标题',
-            id: generateHeadingId(text || 'heading', headingIndex++)
+            if (Array.isArray(token.tokens) && token.type !== 'heading') visit(token.tokens);
+            if (Array.isArray(token.items)) visit(token.items);
         });
-    });
-
+    };
+    visit(tokens);
     return headings;
 }
 
-function splitTableRow(line) {
-    let body = line.trim();
-    if (body.startsWith('|')) body = body.slice(1);
-    if (body.endsWith('|')) body = body.slice(0, -1);
-    return body.split('|').map((cell) => cell.trim());
-}
-
-function isTableSeparator(line) {
-    const cells = splitTableRow(line);
-    return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
-}
-
-function renderInlineMarkdown(text) {
-    const placeholders = [];
-    const reserve = (html) => {
-        const token = `%%INLINE-TOKEN-${placeholders.length}%%`;
-        placeholders.push({ token, html });
-        return token;
-    };
-
-    let output = escapeHtml(text);
-
-    output = output.replace(/`([^`]+)`/g, (_, code) => reserve(`<code>${escapeHtml(code)}</code>`));
-    output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
-        const safeUrl = sanitizeUrl(url, true);
-        if (!safeUrl) {
-            return escapeHtml(_);
-        }
-        return reserve(`<img src="${safeUrl}" alt="${escapeHtml(alt)}" loading="lazy" />`);
-    });
-    output = output.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
-        const safeUrl = sanitizeUrl(url);
-        if (!safeUrl) {
-            return escapeHtml(_);
-        }
-        const isExternal = /^(https?:)?\/\//i.test(url);
-        const target = isExternal ? ' target="_blank" rel="noopener noreferrer"' : '';
-        return reserve(`<a href="${safeUrl}"${target}>${escapeHtml(label)}</a>`);
-    });
-    output = output.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    output = output.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-    output = output.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-    output = output.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-    output = output.replace(/_([^_\n]+)_/g, '<em>$1</em>');
-    output = output.replace(/==([^=\n]+)==/g, '<mark>$1</mark>');
-
-    placeholders.forEach(({ token, html }) => {
-        output = output.replace(token, html);
-    });
-
-    return output;
-}
-
-function renderList(lines, startIndex, ordered) {
-    const tagName = ordered ? 'ol' : 'ul';
-    const items = [];
-    let index = startIndex;
-
-    while (index < lines.length) {
-        const line = lines[index];
-        const match = ordered
-            ? line.match(/^\s*\d+\.\s+(.*)$/)
-            : line.match(/^\s*[-*+]\s+(.*)$/);
-
-        if (!match) break;
-
-        const taskMatch = match[1].match(/^\[( |x|X)\]\s+(.*)$/);
-        if (taskMatch) {
-            const checked = taskMatch[1].toLowerCase() === 'x';
-            items.push(`<li class="task-list-item"><input type="checkbox" disabled${checked ? ' checked' : ''} /> <span>${renderInlineMarkdown(taskMatch[2])}</span></li>`);
-        } else {
-            items.push(`<li>${renderInlineMarkdown(match[1])}</li>`);
-        }
-
-        index += 1;
-    }
-
-    return {
-        html: `<${tagName}>${items.join('')}</${tagName}>`,
-        nextIndex: index
-    };
-}
-
-function renderBlockquote(lines, startIndex) {
-    const quoteLines = [];
-    let index = startIndex;
-
-    while (index < lines.length) {
-        const match = lines[index].match(/^\s*>\s?(.*)$/);
-        if (!match) break;
-        quoteLines.push(renderInlineMarkdown(match[1]));
-        index += 1;
-    }
-
-    return {
-        html: `<blockquote><p>${quoteLines.join('<br>')}</p></blockquote>`,
-        nextIndex: index
-    };
-}
-
-function renderCodeBlock(lines, startIndex) {
-    const firstLine = lines[startIndex].trim();
-    const fence = firstLine.startsWith('```') ? '```' : '~~~';
-    const language = firstLine.slice(3).trim();
-    const codeLines = [];
-    let index = startIndex + 1;
-
-    while (index < lines.length) {
-        const line = lines[index];
-        if (line.trim().startsWith(fence)) {
-            index += 1;
-            break;
-        }
-        codeLines.push(line);
-        index += 1;
-    }
-
-    const className = language ? ` class="language-${escapeHtml(language)}"` : '';
-    return {
-        html: `<pre><code${className}>${escapeHtml(codeLines.join('\n'))}</code></pre>`,
-        nextIndex: index
-    };
-}
-
-function renderTable(lines, startIndex) {
-    const headers = splitTableRow(lines[startIndex]);
-    const rows = [];
-    let index = startIndex + 2;
-
-    while (index < lines.length) {
-        const line = lines[index];
-        if (!line.trim() || !line.includes('|')) break;
-        rows.push(splitTableRow(line));
-        index += 1;
-    }
-
-    const thead = `<thead><tr>${headers.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join('')}</tr></thead>`;
-    const tbody = rows.length > 0
-        ? `<tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join('')}</tr>`).join('')}</tbody>`
-        : '';
-
-    return {
-        html: `<table>${thead}${tbody}</table>`,
-        nextIndex: index
-    };
-}
-
-function renderParagraph(lines, startIndex) {
-    const parts = [];
-    let index = startIndex;
-
-    while (index < lines.length) {
-        const line = lines[index];
-        const trimmed = line.trim();
-
-        if (
-            !trimmed
-            || /^\s{0,3}(#{1,6})\s+/.test(line)
-            || /^\s*>\s?/.test(line)
-            || /^\s*([-*_])(?:\s*\1){2,}\s*$/.test(trimmed)
-            || /^\s*(```|~~~)/.test(trimmed)
-            || /^\s*\[TOC\]\s*$/i.test(trimmed)
-            || /^\s*\d+\.\s+/.test(line)
-            || /^\s*[-*+]\s+/.test(line)
-            || (line.includes('|') && index + 1 < lines.length && isTableSeparator(lines[index + 1]))
-        ) {
-            break;
-        }
-
-        parts.push(renderInlineMarkdown(line));
-        index += 1;
-    }
-
-    return {
-        html: `<p>${parts.join('<br>')}</p>`,
-        nextIndex: index
-    };
-}
-
-// 转换函数：将 Markdown 转换为安全 HTML
-function convertToHtml(content) {
+// 转换函数：将 Markdown 转换为 HTML（写入 DOM 前仍需 DOMPurify 净化）
+//
+// 参数:
+//   - content string: Markdown 原文
+//   - options.allowHtml boolean: 是否保留原始 HTML；仅在随后会经过 DOMPurify 时传 true
+function convertToHtml(content, options = {}) {
     if (!content) return '';
 
+    const instance = getMarkdownInstance();
+    if (!instance) {
+        return simpleTextToHtml(content);
+    }
+
     try {
-        const lines = normalizeMarkdownLines(content);
-        const headings = collectHeadings(content);
-        const html = [];
-        let index = 0;
-        let headingIndex = 0;
-
-        while (index < lines.length) {
-            const line = lines[index];
-            const trimmed = line.trim();
-
-            if (!trimmed) {
-                index += 1;
-                continue;
-            }
-
-            if (/^\s*\[TOC\]\s*$/i.test(trimmed)) {
-                html.push(generateTOCHtml(headings));
-                index += 1;
-                continue;
-            }
-
-            const codeFenceMatch = trimmed.match(/^(```|~~~)/);
-            if (codeFenceMatch) {
-                const renderedCode = renderCodeBlock(lines, index);
-                html.push(renderedCode.html);
-                index = renderedCode.nextIndex;
-                continue;
-            }
-
-            const headingMatch = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
-            if (headingMatch) {
-                const text = stripMarkdownForHeading(headingMatch[2]) || '未命名标题';
-                const heading = headings[headingIndex];
-                const id = heading ? heading.id : generateHeadingId(text, headingIndex);
-                headingIndex += 1;
-                html.push(`<h${headingMatch[1].length} id="${id}">${renderInlineMarkdown(headingMatch[2])}</h${headingMatch[1].length}>`);
-                index += 1;
-                continue;
-            }
-
-            if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(trimmed)) {
-                html.push('<hr />');
-                index += 1;
-                continue;
-            }
-
-            if (line.includes('|') && index + 1 < lines.length && isTableSeparator(lines[index + 1])) {
-                const renderedTable = renderTable(lines, index);
-                html.push(renderedTable.html);
-                index = renderedTable.nextIndex;
-                continue;
-            }
-
-            if (/^\s*>\s?/.test(line)) {
-                const renderedQuote = renderBlockquote(lines, index);
-                html.push(renderedQuote.html);
-                index = renderedQuote.nextIndex;
-                continue;
-            }
-
-            if (/^\s*\d+\.\s+/.test(line)) {
-                const renderedOrderedList = renderList(lines, index, true);
-                html.push(renderedOrderedList.html);
-                index = renderedOrderedList.nextIndex;
-                continue;
-            }
-
-            if (/^\s*[-*+]\s+/.test(line)) {
-                const renderedUnorderedList = renderList(lines, index, false);
-                html.push(renderedUnorderedList.html);
-                index = renderedUnorderedList.nextIndex;
-                continue;
-            }
-
-            const renderedParagraph = renderParagraph(lines, index);
-            html.push(renderedParagraph.html);
-            index = renderedParagraph.nextIndex;
-        }
-
-        return html.join('\n');
+        const tokens = instance.lexer(String(content).replace(/\r\n?/g, '\n'));
+        markdownRenderState = {
+            headings: assignHeadingIds(tokens),
+            allowHtml: options.allowHtml === true
+        };
+        return instance.parser(tokens);
     } catch (e) {
         console.error('Markdown转换错误:', e);
         return simpleTextToHtml(content);
+    } finally {
+        markdownRenderState = { headings: [], allowHtml: false };
     }
 }
 
@@ -811,7 +687,9 @@ function initFloatingTOC() {
             }
 
             currentLevel = level;
-            html += `<li><a href="#${heading.id}" class="toc-link toc-level-${level}" data-heading-id="${heading.id}">${text}</a></li>`;
+            // 标题文本来自用户内容（textContent 已是解码后的文本），拼进 innerHTML 前必须转义
+            const safeId = escapeHtml(heading.id);
+            html += `<li><a href="#${safeId}" class="toc-link toc-level-${level}" data-heading-id="${safeId}">${escapeHtml(text)}</a></li>`;
         });
 
         for (let i = 0; i < currentLevel; i++) {

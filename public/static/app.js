@@ -548,30 +548,24 @@ document.addEventListener('DOMContentLoaded', (event) => {
         }
 
         try {
-            let html = '';
-            if (typeof convertToHtml === 'function') {
-                html = convertToHtml(content);
-            } else {
-                marked.setOptions({
-                    breaks: true,
-                    gfm: true,
-                    smartLists: true
-                });
-                html = marked.parse(content);
-            }
+            // 净化器未加载时让渲染器把原始 HTML 当文本转义，宁可少显示也不放行未净化的 HTML
+            const hasSanitizer = typeof DOMPurify !== 'undefined' && typeof DOMPurify.sanitize === 'function';
+            let html = convertToHtml(content, { allowHtml: hasSanitizer });
 
-            if (typeof DOMPurify !== 'undefined') {
+            if (hasSanitizer) {
                 html = DOMPurify.sanitize(html, {
                     ADD_TAGS: ['section', 'input', 'label', 'sup', 'sub', 'mark'],
-                    ADD_ATTR: ['checked', 'disabled', 'type', 'id', 'class']
+                    ADD_ATTR: ['checked', 'disabled', 'type', 'id', 'class', 'target', 'rel', 'loading']
                 });
             }
-            
+
             previewDiv.innerHTML = html;
 
-            // 渲染数学公式
+            // 只渲染解析器标记出的公式元素，正文中的普通 $（如金额）不会被误识别为公式
             if (typeof renderMathInElement === 'function') {
-                renderMathInElement(previewDiv, katexOptions);
+                previewDiv.querySelectorAll('.math-inline, .math-block').forEach((element) => {
+                    renderMathInElement(element, katexOptions);
+                });
             }
 
             // 应用代码高亮并添加复制按钮

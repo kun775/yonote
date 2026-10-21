@@ -53,7 +53,9 @@ npm run dev                                # wrangler dev，默认 http://localh
 ### 视图与前端
 
 - 服务端用 `hono/jsx` 渲染（`src/views/`），页面状态通过 `<body data-*>` 传给前端；`public/static/function.js` 读取这些 data 属性初始化全局变量，`app.js` 负责编辑器、自动保存等交互。`public/static/*.js` 是不经构建、不做类型检查的原生 JS。
-- Markdown 在浏览器端渲染（marked、DOMPurify、KaTeX、highlight.js、mermaid，均从 CDN 加载，见 `src/views/layouts/base.tsx`）。新增外部资源必须同步放宽 `src/index.ts` 的 CSP，字体也受 `font-src` 限制。
+- Markdown 在浏览器端渲染，入口是 `function.js` 的 `convertToHtml`。它基于 marked（CommonMark + GFM），另外扩展了 `[TOC]`、`==高亮==`、标题锚点 id 和公式保护（`$`、`$$`、`\(`、`\[` 包进 `.math-inline` / `.math-block`，`app.js` 只对这些元素调用 KaTeX）。链接和图片地址经 `sanitizeUrl` 按协议白名单过滤。
+- 渲染结果写入 DOM 前必须经过 DOMPurify。`convertToHtml(content, { allowHtml })` 只在随后会净化时才传 `allowHtml: true`，否则原始 HTML 一律转义。
+- marked 和 DOMPurify 在 package.json 里精确锁定为 devDependencies，由 `npm run vendor` 复制到 `public/static/vendor/` 同源提供，测试也加载同一份文件；升级版本后要重新运行它并提交 vendor 文件。KaTeX、highlight.js、mermaid 仍从 CDN 加载（见 `src/views/layouts/base.tsx`）。新增外部资源必须同步放宽 `src/index.ts` 的 CSP，字体也受 `font-src` 限制。
 - 后台样式内联在 `base.tsx` 的 `ADMIN_PAGE_STYLES`，遵循根目录 `DESIGN.md`（Notion 设计系统）；类名、`data-*` 钩子和表单 action 被 `public/static/admin.js` 依赖，改样式时不要改这些。
 - `src/services/pdf.ts` 是无依赖的手写 PDF 生成器（Markdown → PDF），供 `/:key/download` 使用。
 

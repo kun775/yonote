@@ -43,13 +43,18 @@ function createPreviewContext() {
     };
 }
 
-function loadFunctionContext(overrides = {}) {
-    const filePath = path.resolve('public/static/function.js');
-    const source = fs.readFileSync(filePath, 'utf8');
+// 与 base.tsx 的加载顺序一致：先加载同源提供的 marked，再加载 function.js
+function loadFunctionContext(overrides = {}, { withMarked = true } = {}) {
     const context = Object.assign(createPreviewContext(), overrides);
-
     vm.createContext(context);
-    vm.runInContext(source, context, { filename: filePath });
+
+    const files = withMarked
+        ? ['public/static/vendor/marked.umd.js', 'public/static/function.js']
+        : ['public/static/function.js'];
+    for (const file of files) {
+        const filePath = path.resolve(file);
+        vm.runInContext(fs.readFileSync(filePath, 'utf8'), context, { filename: filePath });
+    }
 
     return context;
 }
