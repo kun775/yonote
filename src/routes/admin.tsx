@@ -4,7 +4,7 @@ import { getNoteByKey, deleteNote, deleteEmptyNotes, listNotes, getNoteStats, cl
 import { decryptContent, hashPassword } from '../services/crypto';
 import { isAdminAuthenticated, createAdminSession, destroyAdminSession, verifyAdminPassword } from '../middleware/session';
 import { adminAuthMiddleware } from '../middleware/session';
-import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from '../middleware/rateLimit';
+import { beginPasswordAttempt, clearFailedAttempts } from '../middleware/rateLimit';
 import { AUTH_MODE_PASSWORD, getAuthPolicy } from '../services/authPolicy';
 import { AdminLoginPage } from '../views/admin/login';
 import { DashboardPage } from '../views/admin/dashboard';
@@ -40,9 +40,9 @@ adminRoutes.post('/login', async (c) => {
         return c.html(<AdminLoginPage policy={policy} error="管理密码未配置" />);
     }
 
-    const lockoutStatus = await isLockedOut(c, ADMIN_LOGIN_LOCKOUT_KEY);
-    if (lockoutStatus.locked) {
-        return c.html(<AdminLoginPage policy={policy} error={`登录失败次数过多，请等待${lockoutStatus.remaining}秒后再试`} />);
+    const attempt = await beginPasswordAttempt(c, ADMIN_LOGIN_LOCKOUT_KEY);
+    if (!attempt.allowed) {
+        return c.html(<AdminLoginPage policy={policy} error={`登录失败次数过多，请等待${attempt.remaining}秒后再试`} />);
     }
 
     const isValid = await verifyAdminPassword(password, c.env.ADMIN_PASSWORD);
@@ -54,10 +54,9 @@ adminRoutes.post('/login', async (c) => {
         return c.redirect('/admin/dashboard');
     }
 
-    const result = await recordFailedAttempt(c, ADMIN_LOGIN_LOCKOUT_KEY);
-    const error = result.locked
+    const error = attempt.attemptsRemaining === 0
         ? '登录失败次数过多，请等待30分钟后再试'
-        : `密码错误，还有${result.attemptsRemaining}次尝试机会`;
+        : `密码错误，还有${attempt.attemptsRemaining}次尝试机会`;
     return c.html(<AdminLoginPage policy={policy} error={error} />);
 });
 

@@ -176,13 +176,43 @@ export async function getLockout(db: D1Database, ip: string, noteKey: string): P
     return result || null;
 }
 
-export async function createOrUpdateLockout(db: D1Database, ip: string, noteKey: string, attempts: number, lockedUntil: number | null): Promise<void> {
+export interface LockoutCounter {
+    attempts: number;
+    locked_until: number | null;
+}
+
+// 计数窗口已过（未锁定且首次失败早于 windowStart）或锁定已到期时，计数从 1 重新开始
+const LOCKOUT_EXPIRED = '((locked_until IS NOT NULL AND locked_until <= ?5) OR (locked_until IS NULL AND created_at <= ?6))';
+
+// incrementLockout 用单条 UPSERT 原子地记一次密码尝试，并返回累加后的计数。
+// 计数达到 maxAttempts 的那一次会写入 locked_until；并发请求各自拿到不同的计数，不会多放行。
+export async function incrementLockout(
+    db: D1Database,
+    ip: string,
+    noteKey: string,
+    maxAttempts: number,
+    windowSeconds: number,
+    lockSeconds: number
+): Promise<LockoutCounter> {
     const now = Math.floor(Date.now() / 1000);
-    await db.prepare(`
+    const result = await db.prepare(`
         INSERT INTO lockouts (ip, note_key, attempts, locked_until, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(ip, note_key) DO UPDATE SET attempts = ?, locked_until = ?
-    `).bind(ip, noteKey, attempts, lockedUntil, now, attempts, lockedUntil).run();
+        VALUES (?1, ?2, 1, CASE WHEN 1 >= ?3 THEN ?4 ELSE NULL END, ?5)
+        ON CONFLICT(ip, note_key) DO UPDATE SET
+            attempts = CASE WHEN ${LOCKOUT_EXPIRED} THEN 1 ELSE attempts + 1 END,
+            locked_until = CASE
+                WHEN ${LOCKOUT_EXPIRED} THEN CASE WHEN 1 >= ?3 THEN ?4 ELSE NULL END
+                WHEN locked_until IS NULL AND attempts + 1 >= ?3 THEN ?4
+                ELSE locked_until
+            END,
+            created_at = CASE WHEN ${LOCKOUT_EXPIRED} THEN ?5 ELSE created_at END
+        RETURNING attempts, locked_until
+    `).bind(ip, noteKey, maxAttempts, now + lockSeconds, now, now - windowSeconds).first<LockoutCounter>();
+
+    if (!result) {
+        throw new Error('记录密码尝试失败');
+    }
+    return result;
 }
 
 export async function clearLockout(db: D1Database, ip: string, noteKey: string): Promise<void> {

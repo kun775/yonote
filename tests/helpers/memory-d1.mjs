@@ -2,7 +2,7 @@
 //
 // Handles the subset of SQL used by the Worker code:
 //   - notes (SELECT/INSERT/UPDATE/DELETE)
-//   - lockouts (SELECT/INSERT ON CONFLICT/DELETE)
+//   - lockouts (SELECT/INSERT ON CONFLICT RETURNING/DELETE)
 //   - rate_limits (SELECT/INSERT ON CONFLICT/UPDATE)
 //   - admin_sessions (SELECT/INSERT/DELETE)
 //
@@ -28,6 +28,34 @@ class MemoryStatement {
         }
         if (sql.includes('SELECT * FROM lockouts WHERE ip = ? AND note_key = ?')) {
             return db.lockouts.get(`${values[0]}:${values[1]}`) || null;
+        }
+        if (sql.includes('INSERT INTO lockouts') && sql.includes('RETURNING attempts, locked_until')) {
+            // 对应 queries.ts incrementLockout；真实 SQL 语义由 tests/lockout.test.mjs 在 SQLite 上覆盖
+            const [ip, noteKey, max, lockUntil, now, windowStart] = values;
+            const mapKey = `${ip}:${noteKey}`;
+            const row = db.lockouts.get(mapKey);
+            const expired = row && (
+                (row.locked_until !== null && row.locked_until <= now) ||
+                (row.locked_until === null && row.created_at <= windowStart)
+            );
+
+            if (!row || expired) {
+                db.lockouts.set(mapKey, {
+                    id: row ? row.id : db.nextLockoutId++,
+                    ip,
+                    note_key: noteKey,
+                    attempts: 1,
+                    locked_until: 1 >= max ? lockUntil : null,
+                    created_at: now
+                });
+            } else {
+                if (row.locked_until === null && row.attempts + 1 >= max) {
+                    row.locked_until = lockUntil;
+                }
+                row.attempts += 1;
+            }
+            const current = db.lockouts.get(mapKey);
+            return { attempts: current.attempts, locked_until: current.locked_until };
         }
         if (sql.includes('SELECT count, reset_at FROM rate_limits WHERE ip = ? AND bucket = ?')) {
             return db.rateLimits.get(`${values[0]}:${values[1]}`) || null;
@@ -86,19 +114,6 @@ class MemoryStatement {
 
         if (sql.includes('DELETE FROM notes WHERE key = ?')) {
             db.notes.delete(values[0]);
-            return { meta: { changes: 1 } };
-        }
-
-        if (sql.includes('INSERT INTO lockouts')) {
-            const [ip, noteKey, attempts, lockedUntil, createdAt] = values;
-            db.lockouts.set(`${ip}:${noteKey}`, {
-                id: db.nextLockoutId++,
-                ip,
-                note_key: noteKey,
-                attempts,
-                locked_until: lockedUntil,
-                created_at: createdAt
-            });
             return { meta: { changes: 1 } };
         }
 

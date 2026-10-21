@@ -6,11 +6,12 @@ import { encryptContent, decryptContent, hashPassword, isLegacyPasswordHash, ver
 import { buildMarkdownPdf } from '../services/pdf';
 import { isAuthenticated, setAuthenticated } from '../middleware/auth';
 import {
+    beginPasswordAttempt,
     checkWriteRateLimit,
     clearFailedAttempts,
-    isLockedOut,
+    LOCKOUT_DURATION,
     MAX_NOTE_CONTENT_BYTES,
-    recordFailedAttempt
+    type PasswordAttempt
 } from '../middleware/rateLimit';
 import { ViewPage } from '../views/note/view';
 import { PasswordPage } from '../views/note/password';
@@ -26,6 +27,16 @@ noteRoutes.use('/:key/:action', async (c, next) => {
     }
     await next();
 });
+
+function lockedMessage(remainingSeconds: number): string {
+    return `由于多次密码错误，请等待${remainingSeconds}秒后再试`;
+}
+
+function failedAttemptMessage(attempt: PasswordAttempt): string {
+    return attempt.attemptsRemaining === 0
+        ? '由于多次密码错误，请等待30分钟后再试'
+        : `密码错误，还有${attempt.attemptsRemaining}次尝试机会`;
+}
 
 async function generateAvailableKey(c: Context<AppEnv>): Promise<string> {
     for (let i = 0; i < 10; i++) {
@@ -133,19 +144,19 @@ noteRoutes.post('/:key/verify', async (c) => {
     const password = formData['password'] as string || '';
     const nextUrl = safeRedirectPath(formData['next_url'], `/${key}`);
 
-    const lockoutStatus = await isLockedOut(c, key);
-    if (lockoutStatus.locked) {
+    const note = await getNoteByKey(c.env.DB, key);
+    if (!note) return c.redirect('/');
+
+    const attempt = await beginPasswordAttempt(c, key);
+    if (!attempt.allowed) {
         return c.html(
             <PasswordPage
                 noteKey={key}
                 isPublic={false}
-                error={`由于多次密码错误，请等待${lockoutStatus.remaining}秒后再试`}
+                error={lockedMessage(attempt.remaining)}
             />
         );
     }
-
-    const note = await getNoteByKey(c.env.DB, key);
-    if (!note) return c.redirect('/');
 
     const isValid = await verifyPassword(password, note.password || '');
 
@@ -160,10 +171,7 @@ noteRoutes.post('/:key/verify', async (c) => {
         return c.redirect(nextUrl);
     }
 
-    const result = await recordFailedAttempt(c, key);
-    const errorMsg = result.locked
-        ? `由于多次密码错误，请等待30分钟后再试`
-        : `密码错误，还有${result.attemptsRemaining}次尝试机会`;
+    const errorMsg = failedAttemptMessage(attempt);
 
     return c.html(
         <PasswordPage
@@ -267,23 +275,18 @@ noteRoutes.post('/:key/update', async (c) => {
     if (note.password && (passwordAction === 'remove' || passwordAction === 'change')) {
         const currentPassword = formData['current_password'] as string || '';
 
-        const lockoutStatus = await isLockedOut(c, key);
-        if (lockoutStatus.locked) {
-            const errorMsg = `由于多次密码错误，请等待${lockoutStatus.remaining}秒后再试`;
-            return c.redirect(`/${key}?error=${encodeURIComponent(errorMsg)}`);
-        }
-
         if (!currentPassword) {
             return c.redirect(`/${key}?error=${encodeURIComponent('请输入当前密码')}`);
         }
 
+        const attempt = await beginPasswordAttempt(c, key);
+        if (!attempt.allowed) {
+            return c.redirect(`/${key}?error=${encodeURIComponent(lockedMessage(attempt.remaining))}`);
+        }
+
         const isValid = await verifyPassword(currentPassword, note.password);
         if (!isValid) {
-            const result = await recordFailedAttempt(c, key);
-            const errorMsg = result.locked
-                ? '由于多次密码错误，请等待30分钟后再试'
-                : `密码错误，还有${result.attemptsRemaining}次尝试机会`;
-            return c.redirect(`/${key}?error=${encodeURIComponent(errorMsg)}`);
+            return c.redirect(`/${key}?error=${encodeURIComponent(failedAttemptMessage(attempt))}`);
         }
 
         await clearFailedAttempts(c, key);
@@ -337,15 +340,11 @@ noteRoutes.post('/:key/delete', async (c) => {
     return c.redirect('/');
 });
 
-noteRoutes.post('/:key/verify-delete', async (c) => {
-    const key = c.req.param('key');
-
-    const lockoutStatus = await isLockedOut(c, key);
-    if (lockoutStatus.locked) {
-        return c.json({ success: false, message: `由于多次密码错误，请等待${lockoutStatus.remaining}秒后再试` });
-    }
-
-    const body = await c.req.json<{ password: string }>();
+// 删除、下载前的密码验证共用同一逻辑：验证通过后写入笔记授权 Cookie
+async function verifyNotePasswordJson(c: Context<AppEnv>) {
+    const key = c.req.param('key') as string;
+    const body = await c.req.json<{ password?: unknown }>();
+    const password = typeof body.password === 'string' ? body.password : '';
     const note = await getNoteByKey(c.env.DB, key);
 
     if (!note) {
@@ -356,58 +355,29 @@ noteRoutes.post('/:key/verify-delete', async (c) => {
         return c.json({ success: true });
     }
 
-    const isValid = await verifyPassword(body.password, note.password);
+    const attempt = await beginPasswordAttempt(c, key);
+    if (!attempt.allowed) {
+        return c.json({ success: false, message: lockedMessage(attempt.remaining) });
+    }
+
+    const isValid = await verifyPassword(password, note.password);
     if (isValid) {
         await clearFailedAttempts(c, key);
         let passwordHash = note.password;
         if (isLegacyPasswordHash(passwordHash)) {
-            passwordHash = await hashPassword(body.password);
+            passwordHash = await hashPassword(password);
             await updateNote(c.env.DB, key, { password: passwordHash });
         }
         await setAuthenticated(c, key, passwordHash);
         return c.json({ success: true });
     }
 
-    const result = await recordFailedAttempt(c, key);
-    const errorMsg = result.locked ? '由于多次密码错误，请等待30分钟后再试' : '密码错误';
+    const errorMsg = attempt.attemptsRemaining === 0 ? lockedMessage(LOCKOUT_DURATION) : '密码错误';
     return c.json({ success: false, message: errorMsg });
-});
+}
 
-noteRoutes.post('/:key/verify-download', async (c) => {
-    const key = c.req.param('key');
-
-    const lockoutStatus = await isLockedOut(c, key);
-    if (lockoutStatus.locked) {
-        return c.json({ success: false, message: `由于多次密码错误，请等待${lockoutStatus.remaining}秒后再试` });
-    }
-
-    const body = await c.req.json<{ password: string }>();
-    const note = await getNoteByKey(c.env.DB, key);
-
-    if (!note) {
-        return c.json({ success: false, message: '笔记不存在' });
-    }
-
-    if (!note.password) {
-        return c.json({ success: true });
-    }
-
-    const isValid = await verifyPassword(body.password, note.password);
-    if (isValid) {
-        await clearFailedAttempts(c, key);
-        let passwordHash = note.password;
-        if (isLegacyPasswordHash(passwordHash)) {
-            passwordHash = await hashPassword(body.password);
-            await updateNote(c.env.DB, key, { password: passwordHash });
-        }
-        await setAuthenticated(c, key, passwordHash);
-        return c.json({ success: true });
-    }
-
-    const result = await recordFailedAttempt(c, key);
-    const errorMsg = result.locked ? '由于多次密码错误，请等待30分钟后再试' : '密码错误';
-    return c.json({ success: false, message: errorMsg });
-});
+noteRoutes.post('/:key/verify-delete', verifyNotePasswordJson);
+noteRoutes.post('/:key/verify-download', verifyNotePasswordJson);
 
 noteRoutes.get('/:key/download', async (c) => {
     const key = c.req.param('key');

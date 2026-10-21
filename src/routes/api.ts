@@ -5,11 +5,12 @@ import type { Note } from '../db/queries';
 import { createNote, getNoteByKey, updateNote } from '../db/queries';
 import { isAuthenticated } from '../middleware/auth';
 import {
+    beginPasswordAttempt,
     checkWriteRateLimit,
     clearFailedAttempts,
     isLockedOut,
-    MAX_NOTE_CONTENT_BYTES,
-    recordFailedAttempt
+    LOCKOUT_DURATION,
+    MAX_NOTE_CONTENT_BYTES
 } from '../middleware/rateLimit';
 import { decryptContent, encryptContent, hashPassword, isLegacyPasswordHash, verifyPassword } from '../services/crypto';
 import { isValidKey } from '../utils/validation';
@@ -68,18 +69,18 @@ async function verifyNoteHeaderPassword(
         return { authorized: false, locked: false, remaining: 0 };
     }
 
-    const lockoutStatus = await isLockedOut(c, note.key);
-    if (lockoutStatus.locked) {
-        return { authorized: false, locked: true, remaining: lockoutStatus.remaining };
+    const attempt = await beginPasswordAttempt(c, note.key);
+    if (!attempt.allowed) {
+        return { authorized: false, locked: true, remaining: attempt.remaining };
     }
 
     const valid = await verifyPassword(password, note.password);
     if (!valid) {
-        const result = await recordFailedAttempt(c, note.key);
+        const locked = attempt.attemptsRemaining === 0;
         return {
             authorized: false,
-            locked: result.locked,
-            remaining: result.locked ? 30 * 60 : 0
+            locked,
+            remaining: locked ? LOCKOUT_DURATION : 0
         };
     }
 
