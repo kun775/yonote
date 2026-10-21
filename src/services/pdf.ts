@@ -82,11 +82,11 @@ function stripInlineMarkdown(text: string): string {
     return out.trim();
 }
 
+// 字宽（em）与字体对象中声明的宽度一致：ASCII 为 /W 中的 500，其余字符为 /DW 1000
 function estimateCharUnits(ch: string): number {
-    if (ch === '\t') return 2.2;
-    if (ch === ' ') return 0.35;
+    if (ch === '\t') return 2;
     const code = ch.codePointAt(0) || 0;
-    if (code <= 0x7f) return 0.55;
+    if (code <= 0x7f) return 0.5;
     return 1;
 }
 
@@ -784,7 +784,8 @@ function buildPdfDocument(pageStreams: string[]): Uint8Array {
     objects[2] = '';
     // 内置中易宋体（GB）以保证中文可显示
     objects[3] = '<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [4 0 R] >>';
-    objects[4] = '<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /FontDescriptor 5 0 R /DW 1000 >>';
+    // Adobe-GB1 的 CID 1-95 对应 ASCII 0x20-0x7E：声明为半角宽度，否则会按 /DW 1000 全角排布，英文字母间距过大
+    objects[4] = '<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /FontDescriptor 5 0 R /DW 1000 /W [1 95 500] >>';
     objects[5] = '<< /Type /FontDescriptor /FontName /STSong-Light /Flags 4 /Ascent 880 /Descent -120 /CapHeight 700 /ItalicAngle 0 /StemV 80 /MissingWidth 500 >>';
 
     let nextId = 6;
