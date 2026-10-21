@@ -51,6 +51,10 @@ DEX_ALLOWED_EMAILS = "vita@zkun.de"
 #   wrangler secret put DEX_CLIENT_SECRET
 # 删除该 secret 即可关闭 dex 入口（入口自动消失，无需改代码）。
 
+# 定时清理过期的管理员会话、密码锁定与限流记录（src/index.ts 的 scheduled 处理器）
+[triggers]
+crons = ["17 * * * *"]
+
 # 静态资源配置
 [assets]
 directory = "./public"
@@ -63,6 +67,10 @@ DEX_ISSUER = "https://auth.zkun.de/dex"
 DEX_CLIENT_ID = "note-ikun-day"
 DEX_ALLOWED_USERS = "dex_vita"
 DEX_ALLOWED_EMAILS = "vita@zkun.de"
+
+# 生产环境定时清理（与顶层保持一致，显式声明不依赖继承）
+[env.production.triggers]
+crons = ["17 * * * *"]
 
 # 生产环境自定义域路由（与顶层保持一致）
 [[env.production.routes]]

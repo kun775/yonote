@@ -244,6 +244,32 @@ export async function cleanExpiredSessions(db: D1Database): Promise<void> {
     await db.prepare('DELETE FROM admin_sessions WHERE expires_at < ?').bind(now).run();
 }
 
+export interface CleanupResult {
+    adminSessions: number;
+    lockouts: number;
+    rateLimits: number;
+}
+
+// cleanupExpiredRecords 清理过期的会话、锁定与限流记录，由定时任务调用。
+// lockouts 只删已到期的锁和超出计数窗口的未锁定记录，仍在锁定期内的保留。
+export async function cleanupExpiredRecords(db: D1Database, lockoutWindowSeconds: number): Promise<CleanupResult> {
+    const now = Math.floor(Date.now() / 1000);
+
+    const sessions = await db.prepare('DELETE FROM admin_sessions WHERE expires_at < ?').bind(now).run();
+    const lockouts = await db.prepare(`
+        DELETE FROM lockouts
+        WHERE (locked_until IS NOT NULL AND locked_until <= ?)
+           OR (locked_until IS NULL AND created_at <= ?)
+    `).bind(now, now - lockoutWindowSeconds).run();
+    const rateLimits = await db.prepare('DELETE FROM rate_limits WHERE reset_at <= ?').bind(now).run();
+
+    return {
+        adminSessions: sessions.meta.changes || 0,
+        lockouts: lockouts.meta.changes || 0,
+        rateLimits: rateLimits.meta.changes || 0
+    };
+}
+
 // Rate limit functions
 
 export interface RateLimitRecord {

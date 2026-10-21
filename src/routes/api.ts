@@ -6,6 +6,7 @@ import { createNote, getNoteByKey, updateNote } from '../db/queries';
 import { isAuthenticated } from '../middleware/auth';
 import {
     beginPasswordAttempt,
+    checkNoteCreateLimit,
     checkWriteRateLimit,
     clearFailedAttempts,
     isLockedOut,
@@ -202,6 +203,11 @@ apiRoutes.post('/notes/:key', async (c) => {
             return jsonError(c, 403, '密码错误或缺少编辑权限');
         }
     } else {
+        const createLimit = await checkNoteCreateLimit(c);
+        if (!createLimit.allowed) {
+            c.header('Retry-After', String(createLimit.retryAfter));
+            return jsonError(c, 429, `新建笔记过于频繁，请等待 ${createLimit.retryAfter} 秒后再试`);
+        }
         note = await createNote(c.env.DB, key);
     }
 

@@ -7,6 +7,7 @@ import { buildMarkdownPdf } from '../services/pdf';
 import { isAuthenticated, setAuthenticated } from '../middleware/auth';
 import {
     beginPasswordAttempt,
+    checkNoteCreateLimit,
     checkWriteRateLimit,
     clearFailedAttempts,
     LOCKOUT_DURATION,
@@ -201,6 +202,12 @@ noteRoutes.post('/:key/auto-save', async (c) => {
 
     // 如果笔记不存在，先创建
     if (!note) {
+        const createLimit = await checkNoteCreateLimit(c);
+        if (!createLimit.allowed) {
+            c.header('Retry-After', String(createLimit.retryAfter));
+            return c.json({ status: 'error', message: `新建笔记过于频繁，请等待 ${createLimit.retryAfter} 秒后再试` }, 429);
+        }
+
         await createNote(c.env.DB, key);
         note = await getNoteByKey(c.env.DB, key);
         if (!note) {
@@ -262,6 +269,13 @@ noteRoutes.post('/:key/update', async (c) => {
 
     // 如果笔记不存在，先创建
     if (!note) {
+        const createLimit = await checkNoteCreateLimit(c);
+        if (!createLimit.allowed) {
+            const errorMsg = `新建笔记过于频繁，请等待 ${createLimit.retryAfter} 秒后再试`;
+            c.header('Retry-After', String(createLimit.retryAfter));
+            return c.redirect(`/${key}?error=${encodeURIComponent(errorMsg)}`);
+        }
+
         await createNote(c.env.DB, key);
         note = await getNoteByKey(c.env.DB, key);
         if (!note) return c.redirect('/');

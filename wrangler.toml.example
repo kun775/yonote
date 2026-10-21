@@ -38,6 +38,10 @@ DEX_ALLOWED_EMAILS = "<YOUR_EMAIL>"
 # ADMIN_PASSWORD=<管理员密码哈希>
 # DEX_CLIENT_SECRET=<dex 机密客户端密钥；删除它即可关闭 dex 入口>
 
+# 定时清理过期的管理员会话、密码锁定与限流记录
+[triggers]
+crons = ["17 * * * *"]
+
 # 静态资源配置
 [assets]
 directory = "./public"
@@ -45,6 +49,9 @@ directory = "./public"
 # 生产环境配置
 [env.production]
 name = "yonote"
+
+[env.production.triggers]
+crons = ["17 * * * *"]
 
 [env.production.vars]
 ENVIRONMENT = "production"

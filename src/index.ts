@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
-import type { AppEnv } from './types';
+import type { AppEnv, Bindings } from './types';
+import { cleanupExpiredRecords } from './db/queries';
+import { LOCKOUT_DURATION } from './middleware/rateLimit';
 import { noteRoutes } from './routes/note';
 import { apiRoutes } from './routes/api';
 import { adminRoutes } from './routes/admin';
@@ -53,4 +55,19 @@ app.notFound((c) => {
     return c.redirect('/');
 });
 
-export default app;
+// 定时清理过期的会话、锁定与限流记录（cron 见 wrangler.toml 的 [triggers]）
+async function runScheduledCleanup(env: Bindings): Promise<void> {
+    const result = await cleanupExpiredRecords(env.DB, LOCKOUT_DURATION);
+    console.log(
+        `定时清理完成: admin_sessions=${result.adminSessions} lockouts=${result.lockouts} rate_limits=${result.rateLimits}`
+    );
+}
+
+export { app };
+
+export default {
+    fetch: app.fetch,
+    scheduled(_controller: ScheduledController, env: Bindings, ctx: ExecutionContext) {
+        ctx.waitUntil(runScheduledCleanup(env));
+    }
+} satisfies ExportedHandler<Bindings>;

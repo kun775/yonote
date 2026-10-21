@@ -34,6 +34,10 @@ export const MAX_NOTE_CONTENT_BYTES = 256 * 1024;
 export const WRITE_RATE_LIMIT_WINDOW = 60;
 export const WRITE_RATE_LIMIT_MAX = 30;
 
+// 新建笔记配额：每 IP 每小时 30 篇（网页与 API 共用），限制匿名用户换 key 持续写入撑满存储
+export const NOTE_CREATE_LIMIT_WINDOW = 60 * 60;
+export const NOTE_CREATE_LIMIT_MAX = 30;
+
 export function getClientIP(c: Context<AppEnv>): string {
     return c.req.header('CF-Connecting-IP') ||
            c.req.header('X-Forwarded-For')?.split(',')[0].trim() ||
@@ -129,4 +133,9 @@ export async function checkWriteRateLimit(
 
     await incrementRateLimit(c.env.DB, ip, bucket);
     return { allowed: true, retryAfter: 0 };
+}
+
+// checkNoteCreateLimit 只在即将新建笔记时调用，消耗一次新建配额
+export function checkNoteCreateLimit(c: Context<AppEnv>): Promise<{ allowed: boolean; retryAfter: number }> {
+    return checkWriteRateLimit(c, 'note:create', NOTE_CREATE_LIMIT_MAX, NOTE_CREATE_LIMIT_WINDOW);
 }

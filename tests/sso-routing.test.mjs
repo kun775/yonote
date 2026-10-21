@@ -19,7 +19,7 @@ async function loadApp() {
 
     const source = result.outputFiles[0].text;
     const encoded = Buffer.from(source).toString('base64');
-    return (await import(`data:text/javascript;base64,${encoded}`)).default;
+    return (await import(`data:text/javascript;base64,${encoded}`)).app;
 }
 
 const app = await loadApp();
