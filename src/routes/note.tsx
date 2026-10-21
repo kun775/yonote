@@ -229,10 +229,13 @@ noteRoutes.post('/:key/update', async (c) => {
         return c.redirect(`/${key}?error=${encodeURIComponent(errorMsg)}`);
     }
 
-    // 如果内容为空且没有设置密码，删除笔记
+    // 如果内容为空且没有设置密码，删除笔记；删除同样需要通过受保护笔记的鉴权
     if (!trimmedContent && passwordAction !== 'change') {
         const note = await getNoteByKey(c.env.DB, key);
         if (note) {
+            if (note.password && !(await isAuthenticated(c, key, note.password))) {
+                return c.redirect(`/${key}`);
+            }
             await deleteNote(c.env.DB, key);
         }
         return c.redirect('/');

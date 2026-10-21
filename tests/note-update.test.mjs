@@ -86,6 +86,29 @@ test('未认证用户更新受保护笔记时被重定向回笔记页，不落�
     assert.equal(note.password, originalHash);
 });
 
+test('未认证用户提交空内容不能删除受保护笔记', async () => {
+    const env = createEnv();
+    await seedProtectedNote(env, 'note-del', 'secret-v1');
+
+    const response = await postUpdate(env, 'note-del', { content: '' });
+
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get('location'), '/note-del');
+    assert.ok(env.DB.notes.has('note-del'), '受保护笔记不得被未认证请求删除');
+});
+
+test('已认证用户提交空内容会删除受保护笔记', async () => {
+    const env = createEnv();
+    await seedProtectedNote(env, 'note-del2', 'secret-v1');
+    const cookie = await verifyAndGetAuthCookie(env, 'note-del2', 'secret-v1');
+
+    const response = await postUpdate(env, 'note-del2', { content: '   ' }, { Cookie: cookie });
+
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get('location'), '/');
+    assert.equal(env.DB.notes.has('note-del2'), false);
+});
+
 test('移除密码要求当前密码正确，成功后 password 变 null、public 强制为 0', async () => {
     const env = createEnv();
     await seedProtectedNote(env, 'note-b', 'current-pass', { public: 1 });
