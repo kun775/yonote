@@ -18,6 +18,15 @@ import { isValidKey, safeRedirectPath } from '../utils/validation';
 
 export const noteRoutes = new Hono<AppEnv>();
 
+// /:key/xxx 子路由（保存、验证、删除、下载）统一校验 key，避免写入 GET /:key 访问不到的非法 key。
+// 注意不能写成 '/:key/*'：Hono 的通配也会命中 '/:key'，会改变 GET /:key 遇到非法 key 时重定向首页的行为
+noteRoutes.use('/:key/:action', async (c, next) => {
+    if (!isValidKey(c.req.param('key'))) {
+        return c.text('Not Found', 404);
+    }
+    await next();
+});
+
 async function generateAvailableKey(c: Context<AppEnv>): Promise<string> {
     for (let i = 0; i < 10; i++) {
         const key = generateKey();
