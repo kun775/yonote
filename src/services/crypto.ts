@@ -2,7 +2,12 @@ const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
+// 旧版内容密钥派生：PBKDF2 10 万轮，仅用于解密历史数据（无版本前缀的密文）
 const PBKDF2_ITERATIONS = 100000;
+// 新版内容密文格式：'v2:' + base64(salt | iv | ciphertext)，密钥由 HKDF-SHA256 派生。
+// ENCRYPTION_KEY 是高熵随机密钥而非人类口令，无需慢速派生；base64 字母表不含 ':'，前缀不会与旧格式冲突。
+const CONTENT_V2_PREFIX = 'v2:';
+const CONTENT_V2_INFO = 'yonote-content-v2';
 const PASSWORD_ITERATIONS = 100000;
 const PASSWORD_SALT_LENGTH = 16;
 const PASSWORD_PREFIX = 'pbkdf2$';
@@ -46,7 +51,30 @@ function hexToBytes(hex: string): Uint8Array | null {
     return bytes;
 }
 
-async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+async function deriveContentKey(secret: string, salt: Uint8Array): Promise<CryptoKey> {
+    const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(secret),
+        'HKDF',
+        false,
+        ['deriveKey']
+    );
+
+    return crypto.subtle.deriveKey(
+        {
+            name: 'HKDF',
+            hash: 'SHA-256',
+            salt: salt,
+            info: new TextEncoder().encode(CONTENT_V2_INFO)
+        },
+        keyMaterial,
+        { name: ALGORITHM, length: KEY_LENGTH },
+        false,
+        ['encrypt', 'decrypt']
+    );
+}
+
+async function deriveLegacyContentKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
     const encoder = new TextEncoder();
     const keyMaterial = await crypto.subtle.importKey(
         'raw',
@@ -108,7 +136,7 @@ export async function encryptContent(content: string, encryptionKey: string): Pr
     const normalizedKey = requireSecret(encryptionKey, 'ENCRYPTION_KEY');
     const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
     const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-    const key = await deriveKey(normalizedKey, salt);
+    const key = await deriveContentKey(normalizedKey, salt);
 
     const encrypted = await crypto.subtle.encrypt(
         { name: ALGORITHM, iv: iv },
@@ -121,7 +149,7 @@ export async function encryptContent(content: string, encryptionKey: string): Pr
     combined.set(iv, salt.length);
     combined.set(new Uint8Array(encrypted), salt.length + iv.length);
 
-    return base64Encode(combined);
+    return `${CONTENT_V2_PREFIX}${base64Encode(combined)}`;
 }
 
 export async function decryptContent(encryptedData: string, encryptionKey: string): Promise<string> {
@@ -129,13 +157,17 @@ export async function decryptContent(encryptedData: string, encryptionKey: strin
 
     try {
         const normalizedKey = requireSecret(encryptionKey, 'ENCRYPTION_KEY');
-        const combined = base64Decode(encryptedData);
+        const isV2 = encryptedData.startsWith(CONTENT_V2_PREFIX);
+        const combined = base64Decode(isV2 ? encryptedData.slice(CONTENT_V2_PREFIX.length) : encryptedData);
 
         const salt = combined.slice(0, SALT_LENGTH);
         const iv = combined.slice(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
         const ciphertext = combined.slice(SALT_LENGTH + IV_LENGTH);
 
-        const key = await deriveKey(normalizedKey, salt);
+        // 无前缀的历史密文仍按 PBKDF2 解密；下次写入时自动以 v2 格式重新加密
+        const key = isV2
+            ? await deriveContentKey(normalizedKey, salt)
+            : await deriveLegacyContentKey(normalizedKey, salt);
 
         const decrypted = await crypto.subtle.decrypt(
             { name: ALGORITHM, iv: iv },
